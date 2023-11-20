@@ -20,6 +20,11 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"google.golang.org/grpc"
+	// "google.golang.org/grpc/credentials/local"
+	"google.golang.org/grpc/credentials/insecure"
+	// "google.golang.org/grpc/credentials"
+
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/rpc"
@@ -47,15 +52,53 @@ type analyticsService struct {
 }
 
 func NewAnalyticsService(_ *config.Config, currentNode routing.LocalNode) AnalyticsService {
-	return &analyticsService{
+	service := &analyticsService{
 		analyticsKey: "", // TODO: conf.AnalyticsKey
 		nodeID:       currentNode.Id,
+	}
+
+	service.Connect()
+	
+	return service;
+}
+
+func (a *analyticsService) Connect() {
+	// credentials, err := credentials.NewClientTLSFromFile("/etc/nginx/conf.d/instahelp.me.wildcard.crt", "tobias-dev.instahelp.me")
+	// if err != nil {
+	// 	logger.Errorw("credentials error", err);
+	// 	return service;
+	// }
+	// conn, err := grpc.Dial("tobias-dev.instahelp.me:50052", grpc.WithTransportCredentials(credentials))
+	conn, err := grpc.Dial("localhost:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		logger.Errorw("couldn't connect to analytics server", err);
+		return;
+	}
+	c := livekit.NewAnalyticsRecorderServiceClient(conn)
+	// ctx := context.Background()
+	stats, err := c.IngestStats(context.Background())
+	if err != nil {
+		logger.Errorw("failed to get stats client", err)
+		a.stats = nil;
+	} else {
+		a.stats = stats;
+	}
+
+	events, err := c.IngestEvents(context.Background())
+	if err != nil {
+		logger.Errorw("failed to get events client", err)
+		a.events = nil;
+	} else {
+		a.events = events;
 	}
 }
 
 func (a *analyticsService) SendStats(_ context.Context, stats []*livekit.AnalyticsStat) {
 	if a.stats == nil {
-		return
+		a.Connect()
+		if a.stats == nil {
+			return
+		}
 	}
 
 	for _, stat := range stats {
@@ -65,12 +108,16 @@ func (a *analyticsService) SendStats(_ context.Context, stats []*livekit.Analyti
 	}
 	if err := a.stats.Send(&livekit.AnalyticsStats{Stats: stats}); err != nil {
 		logger.Errorw("failed to send stats", err)
+		a.stats = nil
 	}
 }
 
 func (a *analyticsService) SendEvent(_ context.Context, event *livekit.AnalyticsEvent) {
 	if a.events == nil {
-		return
+		a.Connect()
+		if a.events == nil {
+			return
+		}
 	}
 
 	event.Id = guid.New("AE_")
@@ -80,6 +127,7 @@ func (a *analyticsService) SendEvent(_ context.Context, event *livekit.Analytics
 		Events: []*livekit.AnalyticsEvent{event},
 	}); err != nil {
 		logger.Errorw("failed to send event", err, "eventType", event.Type.String())
+		a.events = nil
 	}
 }
 
