@@ -279,8 +279,11 @@ func NewWebRTCReceiver(
 	})
 
 	w.connectionStats = connectionquality.NewConnectionStats(connectionquality.ConnectionStatsParams{
-		ReceiverProvider: w,
-		Logger:           w.logger.WithValues("direction", "up"),
+		IncludeRTT:         true,
+		IncludeJitter:      true,
+		EnableBitrateScore: true,
+		ReceiverProvider:   w,
+		Logger:             w.logger.WithValues("direction", "up"),
 	})
 	w.connectionStats.OnStatsUpdate(func(_cs *connectionquality.ConnectionStats, stat *livekit.AnalyticsStat) {
 		if w.onStatsUpdate != nil {
