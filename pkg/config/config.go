@@ -77,6 +77,7 @@ type Config struct {
 	Development bool `yaml:"development,omitempty"`
 
 	Metric metric.MetricConfig `yaml:"metric,omitempty"`
+	AnalyticsHost string `yaml:"analytics_host,omitempty"`
 }
 
 type RTCConfig struct {
