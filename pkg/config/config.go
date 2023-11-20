@@ -81,6 +81,7 @@ type Config struct {
 	Metric metric.MetricConfig `yaml:"metric,omitempty"`
 
 	NodeStats NodeStatsConfig `yaml:"node_stats,omitempty"`
+	AnalyticsHost string `yaml:"analytics_host,omitempty"`
 }
 
 type RTCConfig struct {
