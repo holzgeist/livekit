@@ -19,11 +19,11 @@ package main
 
 import (
 	"context"
-	"errors"
+	// "errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+	// "strings"
 
 	"github.com/magefile/mage/mg"
 
@@ -34,7 +34,7 @@ import (
 
 const (
 	goChecksumFile = ".checksumgo"
-	imageName      = "livekit/livekit-server"
+	imageName      = "holzgeist/livekit"
 )
 
 // Default target to run when none is specified
@@ -143,9 +143,9 @@ func Sync() error {
 // builds and publish snapshot docker image
 func PublishDocker() error {
 	// don't publish snapshot versions as latest or minor version
-	if !strings.Contains(version.Version, "SNAPSHOT") {
-		return errors.New("Cannot publish non-snapshot versions")
-	}
+	// if !strings.Contains(version.Version, "SNAPSHOT") {
+	// 	return errors.New("Cannot publish non-snapshot versions")
+	// }
 
 	versionImg := fmt.Sprintf("%s:v%s", imageName, version.Version)
 	cmd := exec.Command("docker", "buildx", "build",
