@@ -69,7 +69,7 @@ func (a *analyticsService) Connect() {
 	// 	return service;
 	// }
 	// conn, err := grpc.Dial("tobias-dev.instahelp.me:50052", grpc.WithTransportCredentials(credentials))
-	conn, err := grpc.Dial("localhost:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial("analytics-server:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		logger.Errorw("couldn't connect to analytics server", err);
 		return;
