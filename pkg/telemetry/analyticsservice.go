@@ -45,16 +45,18 @@ type analyticsService struct {
 	analyticsKey   string
 	nodeID         string
 	sequenceNumber atomic.Uint64
+	analyticsHost  string
 
 	events    rpc.AnalyticsRecorderService_IngestEventsClient
 	stats     rpc.AnalyticsRecorderService_IngestStatsClient
 	nodeRooms rpc.AnalyticsRecorderService_IngestNodeRoomStatesClient
 }
 
-func NewAnalyticsService(_ *config.Config, currentNode routing.LocalNode) AnalyticsService {
+func NewAnalyticsService(conf *config.Config, currentNode routing.LocalNode) AnalyticsService {
 	service := &analyticsService{
-		analyticsKey: "", // TODO: conf.AnalyticsKey
-		nodeID:       currentNode.Id,
+		analyticsKey:  "", // TODO: conf.AnalyticsKey
+		nodeID:        currentNode.Id,
+		analyticsHost: conf.AnalyticsHost,
 	}
 
 	service.Connect()
@@ -63,21 +65,17 @@ func NewAnalyticsService(_ *config.Config, currentNode routing.LocalNode) Analyt
 }
 
 func (a *analyticsService) Connect() {
-	// pool, err := x509.SystemCertPool()
-	// if err != nil {
-	// 	logger.Errorw("certificate error", err);
-	// 	return;
-	// }
-	// credentials := credentials.NewClientTLSFromCert(pool, "")
+	if a.analyticsHost == "" {
+		return
+	}
+
 	logger.Infow("Connecting to analytics server");
-	// conn, err := grpc.Dial("tobias-dev.instahelp.me:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	conn, err := grpc.Dial("analytics-server:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(a.analyticsHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		logger.Errorw("couldn't connect to analytics server", err);
 		return;
 	}
 	c := livekit.NewAnalyticsRecorderServiceClient(conn)
-	// ctx := context.Background()
 	stats, err := c.IngestStats(context.Background())
 	if err != nil {
 		logger.Errorw("failed to get stats client", err)
