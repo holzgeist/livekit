@@ -63,12 +63,14 @@ func NewAnalyticsService(_ *config.Config, currentNode routing.LocalNode) Analyt
 }
 
 func (a *analyticsService) Connect() {
-	// credentials, err := credentials.NewClientTLSFromFile("/etc/nginx/conf.d/instahelp.me.wildcard.crt", "tobias-dev.instahelp.me")
+	// pool, err := x509.SystemCertPool()
 	// if err != nil {
-	// 	logger.Errorw("credentials error", err);
-	// 	return service;
+	// 	logger.Errorw("certificate error", err);
+	// 	return;
 	// }
-	// conn, err := grpc.Dial("tobias-dev.instahelp.me:50052", grpc.WithTransportCredentials(credentials))
+	// credentials := credentials.NewClientTLSFromCert(pool, "")
+	logger.Infow("Connecting to analytics server");
+	// conn, err := grpc.Dial("tobias-dev.instahelp.me:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	conn, err := grpc.Dial("analytics-server:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		logger.Errorw("couldn't connect to analytics server", err);
@@ -91,6 +93,7 @@ func (a *analyticsService) Connect() {
 	} else {
 		a.events = events;
 	}
+	logger.Infow("Connected to analytics server");
 }
 
 func (a *analyticsService) SendStats(_ context.Context, stats []*livekit.AnalyticsStat) {
@@ -109,6 +112,11 @@ func (a *analyticsService) SendStats(_ context.Context, stats []*livekit.Analyti
 	if err := a.stats.Send(&livekit.AnalyticsStats{Stats: stats}); err != nil {
 		logger.Errorw("failed to send stats", err)
 		a.stats = nil
+		a.Connect()
+		if a.stats == nil {
+			return
+		}
+		a.stats.Send(&livekit.AnalyticsStats{Stats: stats})
 	}
 }
 
@@ -128,6 +136,13 @@ func (a *analyticsService) SendEvent(_ context.Context, event *livekit.Analytics
 	}); err != nil {
 		logger.Errorw("failed to send event", err, "eventType", event.Type.String())
 		a.events = nil
+		a.Connect()
+		if a.events == nil {
+			return
+		}
+		a.events.Send(&livekit.AnalyticsEvents{
+			Events: []*livekit.AnalyticsEvent{event},
+		})
 	}
 }
 
