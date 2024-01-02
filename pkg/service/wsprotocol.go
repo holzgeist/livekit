@@ -142,7 +142,6 @@ func (c *WSSignalConnection) WriteResponse(msg *livekit.SignalResponse) (int, er
 	if err != nil {
 		return 0, err
 	}
-	logger.Infow("Sending response data over network", "length", len(payload), "json", c.useJSON)
 
 	return len(payload), c.conn.WriteMessage(msgType, payload)
 }
@@ -165,7 +164,6 @@ func (c *WSSignalConnection) WriteServerMessage(msg *livekit.ServerMessage) (int
 	if err != nil {
 		return 0, err
 	}
-	logger.Infow("Sending data over network", "length", len(payload), "json", c.useJSON)
 
 	return len(payload), c.conn.WriteMessage(msgType, payload)
 }
