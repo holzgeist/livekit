@@ -84,6 +84,8 @@ type Config struct {
 	Limit    LimitConfig   `yaml:"limit,omitempty"`
 
 	Development bool `yaml:"development,omitempty"`
+
+	AnalyticsHost string `yaml:"analytics_host,omitempty"`
 }
 
 type RTCConfig struct {
