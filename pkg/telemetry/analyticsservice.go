@@ -16,6 +16,7 @@ package telemetry
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -47,6 +48,8 @@ type analyticsService struct {
 	sequenceNumber atomic.Uint64
 	analyticsHost  string
 
+	lastConnectAttempt *time.Time
+
 	events    rpc.AnalyticsRecorderService_IngestEventsClient
 	stats     rpc.AnalyticsRecorderService_IngestStatsClient
 	nodeRooms rpc.AnalyticsRecorderService_IngestNodeRoomStatesClient
@@ -54,14 +57,15 @@ type analyticsService struct {
 
 func NewAnalyticsService(conf *config.Config, currentNode routing.LocalNode) AnalyticsService {
 	service := &analyticsService{
-		analyticsKey:  "", // TODO: conf.AnalyticsKey
-		nodeID:        currentNode.Id,
-		analyticsHost: conf.AnalyticsHost,
+		analyticsKey:       "", // TODO: conf.AnalyticsKey
+		nodeID:             currentNode.Id,
+		analyticsHost:      conf.AnalyticsHost,
+		lastConnectAttempt: nil,
 	}
 
 	service.Connect()
-	
-	return service;
+
+	return service
 }
 
 func (a *analyticsService) Connect() {
@@ -69,29 +73,50 @@ func (a *analyticsService) Connect() {
 		return
 	}
 
-	logger.Infow("Connecting to analytics server");
-	conn, err := grpc.Dial(a.analyticsHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if a.lastConnectAttempt != nil {
+		// only try to connect once a minute
+		if a.lastConnectAttempt.Add(60*time.Second).Compare(time.Now().UTC()) > 0 {
+			logger.Debugw("not connecting to analytics server again", "last attempt", a.lastConnectAttempt)
+			return
+		}
+	}
+
+	now := time.Now().UTC()
+	a.lastConnectAttempt = &now
+
+	logger.Infow("Connecting to analytics server")
+	conn, err := grpc.Dial(
+		a.analyticsHost,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			MinConnectTimeout: time.Second * 2,
+		}),
+	)
 	if err != nil {
-		logger.Errorw("couldn't connect to analytics server", err);
-		return;
+		logger.Errorw("couldn't connect to analytics server", err)
+		return
 	}
 	c := livekit.NewAnalyticsRecorderServiceClient(conn)
 	stats, err := c.IngestStats(context.Background())
 	if err != nil {
-		logger.Errorw("failed to get stats client", err)
-		a.stats = nil;
+		logger.Warnw("failed to get stats client", err)
+		a.stats = nil
 	} else {
-		a.stats = stats;
+		a.stats = stats
 	}
 
 	events, err := c.IngestEvents(context.Background())
 	if err != nil {
-		logger.Errorw("failed to get events client", err)
-		a.events = nil;
+		logger.Warnw("failed to get events client", err)
+		a.events = nil
 	} else {
-		a.events = events;
+		a.events = events
 	}
-	logger.Infow("Connected to analytics server");
+	if a.stats != nil && a.events != nil {
+		logger.Infow("Connected to analytics server")
+	} else {
+		logger.Warnw("Could not connect to the analytics server, trying again in 60s", nil)
+	}
 }
 
 func (a *analyticsService) SendStats(_ context.Context, stats []*livekit.AnalyticsStat) {
