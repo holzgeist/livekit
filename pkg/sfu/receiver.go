@@ -228,6 +228,8 @@ func NewWebRTCReceiver(
 	w.connectionStats = connectionquality.NewConnectionStats(connectionquality.ConnectionStatsParams{
 		MimeType:         w.codec.MimeType,
 		IsFECEnabled:     strings.EqualFold(w.codec.MimeType, webrtc.MimeTypeOpus) && strings.Contains(strings.ToLower(w.codec.SDPFmtpLine), "fec"),
+		IncludeRTT:       true,
+		IncludeJitter:    true,
 		ReceiverProvider: w,
 		Logger:           w.logger.WithValues("direction", "up"),
 	})
