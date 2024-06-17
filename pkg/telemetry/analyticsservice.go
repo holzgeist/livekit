@@ -96,7 +96,7 @@ func (a *analyticsService) Connect() {
 		logger.Errorw("couldn't connect to analytics server", err)
 		return
 	}
-	c := livekit.NewAnalyticsRecorderServiceClient(conn)
+	c := rpc.NewAnalyticsRecorderServiceClient(conn)
 	stats, err := c.IngestStats(context.Background())
 	if err != nil {
 		logger.Warnw("failed to get stats client", err)
