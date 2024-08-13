@@ -85,7 +85,7 @@ func (a *analyticsService) Connect() {
 	a.lastConnectAttempt = &now
 
 	logger.Infow("Connecting to analytics server")
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		a.analyticsHost,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(grpc.ConnectParams{
@@ -116,6 +116,9 @@ func (a *analyticsService) Connect() {
 		logger.Infow("Connected to analytics server")
 	} else {
 		logger.Warnw("Could not connect to the analytics server, trying again in 60s", nil)
+		conn.Close()
+		a.stats = nil
+		a.events = nil
 	}
 }
 
