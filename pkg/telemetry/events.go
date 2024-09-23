@@ -145,6 +145,19 @@ func (t *telemetryService) ParticipantResumed(
 	reason livekit.ReconnectReason,
 ) {
 	t.enqueue(func() {
+		worker, found := t.getOrCreateWorker(
+			ctx,
+			livekit.RoomID(room.Sid),
+			livekit.RoomName(room.Name),
+			livekit.ParticipantID(participant.Sid),
+			livekit.ParticipantIdentity(participant.Identity),
+		)
+		if !found {
+			// need to also account for participant count
+			prometheus.AddParticipant()
+		}
+		worker.SetConnected()
+
 		ev := newParticipantEvent(livekit.AnalyticsEventType_PARTICIPANT_RESUMED, room, participant)
 		ev.ClientMeta = &livekit.AnalyticsClientMeta{
 			Node:            string(nodeID),
