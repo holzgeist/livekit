@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"go.uber.org/atomic"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -30,8 +29,9 @@ var _ Router = (*LocalRouter)(nil)
 
 // a router of messages on the same node, basic implementation for local testing
 type LocalRouter struct {
-	currentNode  LocalNode
-	signalClient SignalClient
+	currentNode       LocalNode
+	signalClient      SignalClient
+	roomManagerClient RoomManagerClient
 
 	lock sync.RWMutex
 	// channels for each participant
@@ -40,20 +40,22 @@ type LocalRouter struct {
 	isStarted        atomic.Bool
 }
 
-func NewLocalRouter(currentNode LocalNode, signalClient SignalClient) *LocalRouter {
+func NewLocalRouter(
+	currentNode LocalNode,
+	signalClient SignalClient,
+	roomManagerClient RoomManagerClient,
+) *LocalRouter {
 	return &LocalRouter{
-		currentNode:      currentNode,
-		signalClient:     signalClient,
-		requestChannels:  make(map[string]*MessageChannel),
-		responseChannels: make(map[string]*MessageChannel),
+		currentNode:       currentNode,
+		signalClient:      signalClient,
+		roomManagerClient: roomManagerClient,
+		requestChannels:   make(map[string]*MessageChannel),
+		responseChannels:  make(map[string]*MessageChannel),
 	}
 }
 
 func (r *LocalRouter) GetNodeForRoom(_ context.Context, _ livekit.RoomName) (*livekit.Node, error) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	node := proto.Clone((*livekit.Node)(r.currentNode)).(*livekit.Node)
-	return node, nil
+	return r.currentNode.Clone(), nil
 }
 
 func (r *LocalRouter) SetNodeForRoom(_ context.Context, _ livekit.RoomName, _ livekit.NodeID) error {
@@ -77,20 +79,28 @@ func (r *LocalRouter) RemoveDeadNodes() error {
 }
 
 func (r *LocalRouter) GetNode(nodeID livekit.NodeID) (*livekit.Node, error) {
-	if nodeID == livekit.NodeID(r.currentNode.Id) {
-		return r.currentNode, nil
+	if nodeID == r.currentNode.NodeID() {
+		return r.currentNode.Clone(), nil
 	}
 	return nil, ErrNotFound
 }
 
 func (r *LocalRouter) ListNodes() ([]*livekit.Node, error) {
 	return []*livekit.Node{
-		r.currentNode,
+		r.currentNode.Clone(),
 	}, nil
 }
 
+func (r *LocalRouter) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (res *livekit.Room, err error) {
+	return r.CreateRoomWithNodeID(ctx, req, r.currentNode.NodeID())
+}
+
+func (r *LocalRouter) CreateRoomWithNodeID(ctx context.Context, req *livekit.CreateRoomRequest, nodeID livekit.NodeID) (res *livekit.Room, err error) {
+	return r.roomManagerClient.CreateRoom(ctx, nodeID, req)
+}
+
 func (r *LocalRouter) StartParticipantSignal(ctx context.Context, roomName livekit.RoomName, pi ParticipantInit) (res StartParticipantSignalResults, err error) {
-	return r.StartParticipantSignalWithNodeID(ctx, roomName, pi, livekit.NodeID(r.currentNode.Id))
+	return r.StartParticipantSignalWithNodeID(ctx, roomName, pi, r.currentNode.NodeID())
 }
 
 func (r *LocalRouter) StartParticipantSignalWithNodeID(ctx context.Context, roomName livekit.RoomName, pi ParticipantInit, nodeID livekit.NodeID) (res StartParticipantSignalResults, err error) {
@@ -122,15 +132,13 @@ func (r *LocalRouter) Start() error {
 }
 
 func (r *LocalRouter) Drain() {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	r.currentNode.State = livekit.NodeState_SHUTTING_DOWN
+	r.currentNode.SetState(livekit.NodeState_SHUTTING_DOWN)
 }
 
 func (r *LocalRouter) Stop() {}
 
 func (r *LocalRouter) GetRegion() string {
-	return r.currentNode.Region
+	return r.currentNode.Region()
 }
 
 func (r *LocalRouter) statsWorker() {
@@ -140,9 +148,7 @@ func (r *LocalRouter) statsWorker() {
 		}
 		// update every 10 seconds
 		<-time.After(statsUpdateInterval)
-		r.lock.Lock()
-		r.currentNode.Stats.UpdatedAt = time.Now().Unix()
-		r.lock.Unlock()
+		r.currentNode.UpdateNodeStats()
 	}
 }
 

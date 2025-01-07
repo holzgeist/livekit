@@ -22,7 +22,7 @@ import (
 
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 
 	"github.com/livekit/mediatransportutil/pkg/nack"
@@ -223,8 +223,8 @@ func TestNewBuffer(t *testing.T) {
 				buf, _ := p.Marshal()
 				_, _ = buff.Write(buf)
 			}
-			require.Equal(t, uint16(2), buff.rtpStats.sequenceNumber.GetHighest())
-			require.Equal(t, uint64(65536+2), buff.rtpStats.sequenceNumber.GetExtendedHighest())
+			require.Equal(t, uint16(2), buff.rtpStats.HighestSequenceNumber())
+			require.Equal(t, uint64(65536+2), buff.rtpStats.ExtendedHighestSequenceNumber())
 		})
 	}
 }
@@ -322,5 +322,4 @@ func BenchmarkMemcpu(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		copy(buf2, buf)
 	}
-
 }

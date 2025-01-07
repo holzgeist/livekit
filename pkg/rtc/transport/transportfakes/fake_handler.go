@@ -5,9 +5,10 @@ import (
 	"sync"
 
 	"github.com/livekit/livekit-server/pkg/rtc/transport"
+	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/sfu/streamallocator"
 	"github.com/livekit/protocol/livekit"
-	webrtc "github.com/pion/webrtc/v3"
+	webrtc "github.com/pion/webrtc/v4"
 )
 
 type FakeHandler struct {
@@ -28,10 +29,16 @@ type FakeHandler struct {
 		arg1 livekit.DataPacket_Kind
 		arg2 []byte
 	}
-	OnFailedStub        func(bool)
+	OnDataSendErrorStub        func(error)
+	onDataSendErrorMutex       sync.RWMutex
+	onDataSendErrorArgsForCall []struct {
+		arg1 error
+	}
+	OnFailedStub        func(bool, *types.ICEConnectionInfo)
 	onFailedMutex       sync.RWMutex
 	onFailedArgsForCall []struct {
 		arg1 bool
+		arg2 *types.ICEConnectionInfo
 	}
 	OnFullyEstablishedStub        func()
 	onFullyEstablishedMutex       sync.RWMutex
@@ -193,16 +200,49 @@ func (fake *FakeHandler) OnDataPacketArgsForCall(i int) (livekit.DataPacket_Kind
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeHandler) OnFailed(arg1 bool) {
+func (fake *FakeHandler) OnDataSendError(arg1 error) {
+	fake.onDataSendErrorMutex.Lock()
+	fake.onDataSendErrorArgsForCall = append(fake.onDataSendErrorArgsForCall, struct {
+		arg1 error
+	}{arg1})
+	stub := fake.OnDataSendErrorStub
+	fake.recordInvocation("OnDataSendError", []interface{}{arg1})
+	fake.onDataSendErrorMutex.Unlock()
+	if stub != nil {
+		fake.OnDataSendErrorStub(arg1)
+	}
+}
+
+func (fake *FakeHandler) OnDataSendErrorCallCount() int {
+	fake.onDataSendErrorMutex.RLock()
+	defer fake.onDataSendErrorMutex.RUnlock()
+	return len(fake.onDataSendErrorArgsForCall)
+}
+
+func (fake *FakeHandler) OnDataSendErrorCalls(stub func(error)) {
+	fake.onDataSendErrorMutex.Lock()
+	defer fake.onDataSendErrorMutex.Unlock()
+	fake.OnDataSendErrorStub = stub
+}
+
+func (fake *FakeHandler) OnDataSendErrorArgsForCall(i int) error {
+	fake.onDataSendErrorMutex.RLock()
+	defer fake.onDataSendErrorMutex.RUnlock()
+	argsForCall := fake.onDataSendErrorArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeHandler) OnFailed(arg1 bool, arg2 *types.ICEConnectionInfo) {
 	fake.onFailedMutex.Lock()
 	fake.onFailedArgsForCall = append(fake.onFailedArgsForCall, struct {
 		arg1 bool
-	}{arg1})
+		arg2 *types.ICEConnectionInfo
+	}{arg1, arg2})
 	stub := fake.OnFailedStub
-	fake.recordInvocation("OnFailed", []interface{}{arg1})
+	fake.recordInvocation("OnFailed", []interface{}{arg1, arg2})
 	fake.onFailedMutex.Unlock()
 	if stub != nil {
-		fake.OnFailedStub(arg1)
+		fake.OnFailedStub(arg1, arg2)
 	}
 }
 
@@ -212,17 +252,17 @@ func (fake *FakeHandler) OnFailedCallCount() int {
 	return len(fake.onFailedArgsForCall)
 }
 
-func (fake *FakeHandler) OnFailedCalls(stub func(bool)) {
+func (fake *FakeHandler) OnFailedCalls(stub func(bool, *types.ICEConnectionInfo)) {
 	fake.onFailedMutex.Lock()
 	defer fake.onFailedMutex.Unlock()
 	fake.OnFailedStub = stub
 }
 
-func (fake *FakeHandler) OnFailedArgsForCall(i int) bool {
+func (fake *FakeHandler) OnFailedArgsForCall(i int) (bool, *types.ICEConnectionInfo) {
 	fake.onFailedMutex.RLock()
 	defer fake.onFailedMutex.RUnlock()
 	argsForCall := fake.onFailedArgsForCall[i]
-	return argsForCall.arg1
+	return argsForCall.arg1, argsForCall.arg2
 }
 
 func (fake *FakeHandler) OnFullyEstablished() {
@@ -553,6 +593,8 @@ func (fake *FakeHandler) Invocations() map[string][][]interface{} {
 	defer fake.onAnswerMutex.RUnlock()
 	fake.onDataPacketMutex.RLock()
 	defer fake.onDataPacketMutex.RUnlock()
+	fake.onDataSendErrorMutex.RLock()
+	defer fake.onDataSendErrorMutex.RUnlock()
 	fake.onFailedMutex.RLock()
 	defer fake.onFailedMutex.RUnlock()
 	fake.onFullyEstablishedMutex.RLock()

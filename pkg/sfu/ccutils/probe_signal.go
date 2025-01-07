@@ -12,25 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package pacer
+package ccutils
 
-import (
-	"time"
-)
-
-type PacketTime struct {
-	baseTime time.Time
-}
-
-func NewPacketTime() *PacketTime {
-	return &PacketTime{
-		baseTime: time.Now(),
-	}
-}
-
-func (p *PacketTime) Get() time.Time {
-	// construct current time based on monotonic clock
-	return p.baseTime.Add(time.Since(p.baseTime))
-}
+import "fmt"
 
 // ------------------------------------------------
+
+type ProbeSignal int
+
+const (
+	ProbeSignalInconclusive ProbeSignal = iota
+	ProbeSignalCongesting
+	ProbeSignalNotCongesting
+)
+
+func (p ProbeSignal) String() string {
+	switch p {
+	case ProbeSignalInconclusive:
+		return "INCONCLUSIVE"
+	case ProbeSignalCongesting:
+		return "CONGESTING"
+	case ProbeSignalNotCongesting:
+		return "NOT_CONGESTING"
+	default:
+		return fmt.Sprintf("%d", int(p))
+	}
+}

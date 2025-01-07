@@ -18,9 +18,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"strings"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -28,6 +29,8 @@ import (
 
 const (
 	trackIdSeparator = "|"
+
+	cMinIPTruncateLen = 8
 )
 
 func UnpackStreamID(packed string) (participantID livekit.ParticipantID, trackID livekit.TrackID) {
@@ -101,10 +104,12 @@ func FromProtoSessionDescription(sd *livekit.SessionDescription) webrtc.SessionD
 	}
 }
 
-func ToProtoTrickle(candidateInit webrtc.ICECandidateInit) *livekit.TrickleRequest {
+func ToProtoTrickle(candidateInit webrtc.ICECandidateInit, target livekit.SignalTarget, final bool) *livekit.TrickleRequest {
 	data, _ := json.Marshal(candidateInit)
 	return &livekit.TrickleRequest{
 		CandidateInit: string(data),
+		Target:        target,
+		Final:         final,
 	}
 }
 
@@ -195,4 +200,17 @@ func LoggerWithCodecMime(l logger.Logger, mime string) logger.Logger {
 		return l.WithValues("mime", mime)
 	}
 	return l
+}
+
+func MaybeTruncateIP(addr string) string {
+	ipAddr := net.ParseIP(addr)
+	if ipAddr == nil {
+		return ""
+	}
+
+	if ipAddr.IsPrivate() || len(addr) <= cMinIPTruncateLen {
+		return addr
+	}
+
+	return addr[:len(addr)-3] + "..."
 }

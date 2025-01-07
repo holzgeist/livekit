@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pion/turn/v2"
+	"github.com/pion/turn/v4"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/twitchtv/twirp"
@@ -62,6 +62,7 @@ type LivekitServer struct {
 
 func NewLivekitServer(conf *config.Config,
 	roomService livekit.RoomService,
+	agentDispatchService *AgentDispatchService,
 	egressService *EgressService,
 	ingressService *IngressService,
 	sipService *SIPService,
@@ -101,22 +102,23 @@ func NewLivekitServer(conf *config.Config,
 			// allow preflight to be cached for a day
 			MaxAge: 86400,
 		}),
+		negroni.HandlerFunc(RemoveDoubleSlashes),
 	}
 	if keyProvider != nil {
 		middlewares = append(middlewares, NewAPIKeyAuthMiddleware(keyProvider))
 	}
 
-	twirpLoggingHook := TwirpLogger()
-	twirpRequestStatusHook := TwirpRequestStatusReporter()
-	roomServer := livekit.NewRoomServiceServer(roomService, twirpLoggingHook)
-	egressServer := livekit.NewEgressServer(egressService, twirp.WithServerHooks(
-		twirp.ChainHooks(
-			twirpLoggingHook,
-			twirpRequestStatusHook,
-		),
-	))
-	ingressServer := livekit.NewIngressServer(ingressService, twirpLoggingHook)
-	sipServer := livekit.NewSIPServer(sipService, twirpLoggingHook)
+	serverOptions := []interface{}{
+		twirp.WithServerHooks(twirp.ChainHooks(
+			TwirpLogger(),
+			TwirpRequestStatusReporter(),
+		)),
+	}
+	roomServer := livekit.NewRoomServiceServer(roomService, serverOptions...)
+	agentDispatchServer := livekit.NewAgentDispatchServiceServer(agentDispatchService, serverOptions...)
+	egressServer := livekit.NewEgressServer(egressService, serverOptions...)
+	ingressServer := livekit.NewIngressServer(ingressService, serverOptions...)
+	sipServer := livekit.NewSIPServer(sipService, serverOptions...)
 
 	mux := http.NewServeMux()
 	if conf.Development {
@@ -127,6 +129,7 @@ func NewLivekitServer(conf *config.Config,
 	}
 
 	mux.Handle(roomServer.PathPrefix(), roomServer)
+	mux.Handle(agentDispatchServer.PathPrefix(), agentDispatchServer)
 	mux.Handle(egressServer.PathPrefix(), egressServer)
 	mux.Handle(ingressServer.PathPrefix(), ingressServer)
 	mux.Handle(sipServer.PathPrefix(), sipServer)
@@ -169,7 +172,7 @@ func NewLivekitServer(conf *config.Config,
 }
 
 func (s *LivekitServer) Node() *livekit.Node {
-	return s.currentNode
+	return s.currentNode.Clone()
 }
 
 func (s *LivekitServer) HTTPPort() int {
@@ -229,8 +232,8 @@ func (s *LivekitServer) Start() error {
 
 	values := []interface{}{
 		"portHttp", s.config.Port,
-		"nodeID", s.currentNode.Id,
-		"nodeIP", s.currentNode.Ip,
+		"nodeID", s.currentNode.NodeID(),
+		"nodeIP", s.currentNode.NodeIP(),
 		"version", version.Version,
 	}
 	if s.config.BindAddresses != nil {

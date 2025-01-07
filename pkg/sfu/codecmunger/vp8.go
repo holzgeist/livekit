@@ -15,10 +15,9 @@
 package codecmunger
 
 import (
-	"fmt"
-
 	"github.com/elliotchance/orderedmap/v2"
 
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
@@ -29,23 +28,6 @@ const (
 	droppedPictureIdsThreshold  = 20
 	exemptedPictureIdsThreshold = 20
 )
-
-// -----------------------------------------------------------
-
-type VP8State struct {
-	ExtLastPictureId int32
-	PictureIdUsed    bool
-	LastTl0PicIdx    uint8
-	Tl0PicIdxUsed    bool
-	TidUsed          bool
-	LastKeyIdx       uint8
-	KeyIdxUsed       bool
-}
-
-func (v VP8State) String() string {
-	return fmt.Sprintf("VP8State{extLastPictureId: %d, pictureIdUsed: %+v, lastTl0PicIdx: %d, tl0PicIdxUsed: %+v, tidUsed: %+v, lastKeyIdx: %d, keyIdxUsed: %+v)",
-		v.ExtLastPictureId, v.PictureIdUsed, v.LastTl0PicIdx, v.Tl0PicIdxUsed, v.TidUsed, v.LastKeyIdx, v.KeyIdxUsed)
-}
 
 // -----------------------------------------------------------
 
@@ -85,25 +67,27 @@ func NewVP8FromNull(cm CodecMunger, logger logger.Logger) *VP8 {
 }
 
 func (v *VP8) GetState() interface{} {
-	return VP8State{
+	return &livekit.VP8MungerState{
 		ExtLastPictureId: v.extLastPictureId,
 		PictureIdUsed:    v.pictureIdUsed,
-		LastTl0PicIdx:    v.lastTl0PicIdx,
+		LastTl0PicIdx:    uint32(v.lastTl0PicIdx),
 		Tl0PicIdxUsed:    v.tl0PicIdxUsed,
 		TidUsed:          v.tidUsed,
-		LastKeyIdx:       v.lastKeyIdx,
+		LastKeyIdx:       uint32(v.lastKeyIdx),
 		KeyIdxUsed:       v.keyIdxUsed,
 	}
 }
 
 func (v *VP8) SeedState(seed interface{}) {
-	if state, ok := seed.(VP8State); ok {
+	switch cm := seed.(type) {
+	case *livekit.RTPForwarderState_Vp8Munger:
+		state := cm.Vp8Munger
 		v.extLastPictureId = state.ExtLastPictureId
 		v.pictureIdUsed = state.PictureIdUsed
-		v.lastTl0PicIdx = state.LastTl0PicIdx
+		v.lastTl0PicIdx = uint8(state.LastTl0PicIdx)
 		v.tl0PicIdxUsed = state.Tl0PicIdxUsed
 		v.tidUsed = state.TidUsed
-		v.lastKeyIdx = state.LastKeyIdx
+		v.lastKeyIdx = uint8(state.LastKeyIdx)
 		v.keyIdxUsed = state.KeyIdxUsed
 	}
 }
@@ -242,7 +226,7 @@ func (v *VP8) UpdateAndGet(extPkt *buffer.ExtPacket, snOutOfOrder bool, snHasGap
 		// which layer the missing packets belong to. A layer could have multiple packets. So, keep track
 		// of pictures that are forwarded even though they will be filtered out based on temporal layer
 		// requirements. That allows forwarding of the complete picture.
-		if vp8.T && vp8.TID > uint8(maxTemporalLayer) {
+		if extPkt.Temporal > maxTemporalLayer {
 			v.exemptedPictureIds.Set(extPictureId, true)
 			// trim cache if necessary
 			for v.exemptedPictureIds.Len() > exemptedPictureIdsThreshold {
@@ -251,7 +235,7 @@ func (v *VP8) UpdateAndGet(extPkt *buffer.ExtPacket, snOutOfOrder bool, snHasGap
 			}
 		}
 	} else {
-		if vp8.T && vp8.TID > uint8(maxTemporalLayer) {
+		if extPkt.Temporal > maxTemporalLayer {
 			// drop only if not exempted
 			_, ok := v.exemptedPictureIds.Get(extPictureId)
 			if !ok {

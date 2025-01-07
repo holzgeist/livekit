@@ -19,14 +19,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/utils"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/webhook"
 )
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . TelemetryService
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . TelemetryService
 type TelemetryService interface {
 	// TrackStats is called periodically for each track in both directions (published/subscribed)
 	TrackStats(key StatsKey, stat *livekit.AnalyticsStat)
@@ -85,6 +86,9 @@ type TelemetryService interface {
 const (
 	workerCleanupWait = 3 * time.Minute
 	jobsQueueMinSize  = 2048
+
+	telemetryStatsUpdateInterval         = time.Second * 30
+	telemetryNonMediaStatsUpdateInterval = time.Second * 30
 )
 
 type telemetryService struct {
@@ -160,7 +164,9 @@ func (t *telemetryService) FlushStats() {
 	if reap != nil {
 		t.workersMu.Lock()
 		for reap != nil {
-			delete(t.workers, reap.participantID)
+			if reap == t.workers[reap.participantID] {
+				delete(t.workers, reap.participantID)
+			}
 			reap = reap.next
 		}
 		t.workersMu.Unlock()
@@ -168,7 +174,7 @@ func (t *telemetryService) FlushStats() {
 }
 
 func (t *telemetryService) run() {
-	for range time.Tick(config.TelemetryStatsUpdateInterval) {
+	for range time.Tick(telemetryStatsUpdateInterval) {
 		t.FlushStats()
 	}
 }
@@ -195,11 +201,17 @@ func (t *telemetryService) getOrCreateWorker(
 	t.workersMu.Lock()
 	defer t.workersMu.Unlock()
 
-	if worker, ok := t.workers[participantID]; ok {
+	worker, ok := t.workers[participantID]
+	if ok && !worker.Closed() {
 		return worker, true
 	}
 
-	worker := newStatsWorker(
+	existingIsConnected := false
+	if ok {
+		existingIsConnected = worker.IsConnected()
+	}
+
+	worker = newStatsWorker(
 		ctx,
 		t,
 		roomID,
@@ -207,6 +219,9 @@ func (t *telemetryService) getOrCreateWorker(
 		participantID,
 		participantIdentity,
 	)
+	if existingIsConnected {
+		worker.SetConnected()
+	}
 
 	t.workers[participantID] = worker
 

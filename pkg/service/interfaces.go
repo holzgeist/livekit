@@ -73,7 +73,9 @@ type IngressStore interface {
 
 //counterfeiter:generate . RoomAllocator
 type RoomAllocator interface {
-	CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, bool, error)
+	AutoCreateEnabled(ctx context.Context) bool
+	SelectRoomNode(ctx context.Context, roomName livekit.RoomName, nodeID livekit.NodeID) error
+	CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest, isExplicit bool) (*livekit.Room, *livekit.RoomInternal, bool, error)
 	ValidateCreateRoom(ctx context.Context, roomName livekit.RoomName) error
 }
 
@@ -88,10 +90,20 @@ type SIPStore interface {
 	ListSIPTrunk(ctx context.Context) ([]*livekit.SIPTrunkInfo, error)
 	ListSIPInboundTrunk(ctx context.Context) ([]*livekit.SIPInboundTrunkInfo, error)
 	ListSIPOutboundTrunk(ctx context.Context) ([]*livekit.SIPOutboundTrunkInfo, error)
-	DeleteSIPTrunk(ctx context.Context, info *livekit.SIPTrunkInfo) error
+	DeleteSIPTrunk(ctx context.Context, sipTrunkID string) error
 
 	StoreSIPDispatchRule(ctx context.Context, info *livekit.SIPDispatchRuleInfo) error
 	LoadSIPDispatchRule(ctx context.Context, sipDispatchRuleID string) (*livekit.SIPDispatchRuleInfo, error)
 	ListSIPDispatchRule(ctx context.Context) ([]*livekit.SIPDispatchRuleInfo, error)
 	DeleteSIPDispatchRule(ctx context.Context, info *livekit.SIPDispatchRuleInfo) error
+}
+
+//counterfeiter:generate . AgentStore
+type AgentStore interface {
+	StoreAgentDispatch(ctx context.Context, dispatch *livekit.AgentDispatch) error
+	DeleteAgentDispatch(ctx context.Context, dispatch *livekit.AgentDispatch) error
+	ListAgentDispatches(ctx context.Context, roomName livekit.RoomName) ([]*livekit.AgentDispatch, error)
+
+	StoreAgentJob(ctx context.Context, job *livekit.Job) error
+	DeleteAgentJob(ctx context.Context, job *livekit.Job) error
 }
