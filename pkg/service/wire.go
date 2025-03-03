@@ -22,7 +22,7 @@ import (
 	"os"
 
 	"github.com/google/wire"
-	"github.com/pion/turn/v2"
+	"github.com/pion/turn/v4"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
@@ -79,16 +79,21 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		NewRoomService,
 		NewRTCService,
 		NewAgentService,
+		NewAgentDispatchService,
 		agent.NewAgentClient,
+		getAgentStore,
 		getSignalRelayConfig,
 		NewDefaultSignalServer,
 		routing.NewSignalClient,
+		getRoomConfig,
+		routing.NewRoomManagerClient,
 		rpc.NewKeepalivePubSub,
 		getPSRPCConfig,
 		getPSRPCClientParams,
 		rpc.NewTopicFormatter,
 		rpc.NewTypedRoomClient,
 		rpc.NewTypedParticipantClient,
+		rpc.NewTypedAgentDispatchInternalClient,
 		NewLocalRoomManager,
 		NewTURNAuthHandler,
 		getTURNAuthHandlerFunc,
@@ -108,6 +113,8 @@ func InitializeRouter(conf *config.Config, currentNode routing.LocalNode) (routi
 		getPSRPCConfig,
 		getPSRPCClientParams,
 		routing.NewSignalClient,
+		getRoomConfig,
+		routing.NewRoomManagerClient,
 		rpc.NewKeepalivePubSub,
 		routing.CreateRouter,
 	)
@@ -116,7 +123,7 @@ func InitializeRouter(conf *config.Config, currentNode routing.LocalNode) (routi
 }
 
 func getNodeID(currentNode routing.LocalNode) livekit.NodeID {
-	return livekit.NodeID(currentNode.Id)
+	return currentNode.NodeID()
 }
 
 func createKeyProvider(conf *config.Config) (auth.KeyProvider, error) {
@@ -200,6 +207,17 @@ func getIngressStore(s ObjectStore) IngressStore {
 	}
 }
 
+func getAgentStore(s ObjectStore) AgentStore {
+	switch store := s.(type) {
+	case *RedisStore:
+		return store
+	case *LocalStore:
+		return store
+	default:
+		return nil
+	}
+}
+
 func getIngressConfig(conf *config.Config) *config.IngressConfig {
 	return &conf.Ingress
 }
@@ -223,6 +241,10 @@ func createClientConfiguration() clientconfiguration.ClientConfigurationManager 
 
 func getLimitConf(config *config.Config) config.LimitConfig {
 	return config.Limit
+}
+
+func getRoomConfig(config *config.Config) config.RoomConfig {
+	return config.Room
 }
 
 func getSignalRelayConfig(config *config.Config) config.SignalRelayConfig {

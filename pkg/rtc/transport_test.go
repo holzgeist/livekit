@@ -22,12 +22,13 @@ import (
 	"time"
 
 	"github.com/pion/sdp/v3"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
 	"github.com/livekit/livekit-server/pkg/rtc/transport"
 	"github.com/livekit/livekit-server/pkg/rtc/transport/transportfakes"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/testutils"
 	"github.com/livekit/protocol/livekit"
 )
@@ -315,7 +316,7 @@ func TestFirstAnswerMissedDuringICERestart(t *testing.T) {
 	handlerA.OnOfferCalls(func(sd webrtc.SessionDescription) error {
 		offerCount.Inc()
 
-		// the second offer is a ice restart offer, so we wait transportB complete the ice gathering
+		// the second offer is a ice restart offer, so we wait for transportB to complete ICE gathering
 		if transportB.pc.ICEGatheringState() == webrtc.ICEGatheringStateGathering {
 			require.Eventually(t, func() bool {
 				return transportB.pc.ICEGatheringState() == webrtc.ICEGatheringStateComplete
@@ -389,9 +390,9 @@ func TestFilteringCandidates(t *testing.T) {
 		ParticipantIdentity: "identity",
 		Config:              &WebRTCConfig{},
 		EnabledCodecs: []*livekit.Codec{
-			{Mime: webrtc.MimeTypeOpus},
-			{Mime: webrtc.MimeTypeVP8},
-			{Mime: webrtc.MimeTypeH264},
+			{Mime: mime.MimeTypeOpus.String()},
+			{Mime: mime.MimeTypeVP8.String()},
+			{Mime: mime.MimeTypeH264.String()},
 		},
 		Handler: &transportfakes.FakeHandler{},
 	}
@@ -416,7 +417,7 @@ func TestFilteringCandidates(t *testing.T) {
 
 	// should not filter out UDP candidates if TCP is not preferred
 	offer = *transport.pc.LocalDescription()
-	filteredOffer := transport.filterCandidates(offer, false)
+	filteredOffer := transport.filterCandidates(offer, false, true)
 	require.EqualValues(t, offer.SDP, filteredOffer.SDP)
 
 	parsed, err := offer.Unmarshal()
@@ -494,7 +495,7 @@ func TestFilteringCandidates(t *testing.T) {
 	require.Equal(t, 2, tcp)
 
 	transport.SetPreferTCP(true)
-	filteredOffer = transport.filterCandidates(offer, true)
+	filteredOffer = transport.filterCandidates(offer, true, true)
 	parsed, err = filteredOffer.Unmarshal()
 	require.NoError(t, err)
 	udp, tcp = getNumTransportTypeCandidates(parsed)
@@ -587,10 +588,6 @@ func untilTransportsConnected(transports ...*transportfakes.FakeHandler) *sync.W
 }
 
 func TestConfigureAudioTransceiver(t *testing.T) {
-	pc, err := webrtc.NewPeerConnection(webrtc.Configuration{})
-	require.NoError(t, err)
-	defer pc.Close()
-
 	for _, testcase := range []struct {
 		nack   bool
 		stereo bool
@@ -601,13 +598,18 @@ func TestConfigureAudioTransceiver(t *testing.T) {
 		{true, true},
 	} {
 		t.Run(fmt.Sprintf("nack=%v,stereo=%v", testcase.nack, testcase.stereo), func(t *testing.T) {
-			tr, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RtpTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
+			var me webrtc.MediaEngine
+			registerCodecs(&me, []*livekit.Codec{{Mime: mime.MimeTypeOpus.String()}}, RTCPFeedbackConfig{Audio: []webrtc.RTCPFeedback{{Type: webrtc.TypeRTCPFBNACK}}}, false)
+			pc, err := webrtc.NewAPI(webrtc.WithMediaEngine(&me)).NewPeerConnection(webrtc.Configuration{})
+			require.NoError(t, err)
+			defer pc.Close()
+			tr, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
 			require.NoError(t, err)
 
 			configureAudioTransceiver(tr, testcase.stereo, testcase.nack)
 			codecs := tr.Sender().GetParameters().Codecs
 			for _, codec := range codecs {
-				if strings.Contains(codec.MimeType, webrtc.MimeTypeOpus) {
+				if mime.IsMimeTypeStringOpus(codec.MimeType) {
 					require.Equal(t, testcase.stereo, strings.Contains(codec.SDPFmtpLine, "sprop-stereo=1"))
 					var nackEnabled bool
 					for _, fb := range codec.RTCPFeedback {

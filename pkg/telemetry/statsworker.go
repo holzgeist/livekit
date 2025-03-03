@@ -19,12 +19,12 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/livekit/livekit-server/pkg/utils"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	protoutils "github.com/livekit/protocol/utils"
 )
 
 // StatsWorker handles participant stats
@@ -128,6 +128,12 @@ func (s *StatsWorker) Close() bool {
 	return ok
 }
 
+func (s *StatsWorker) Closed() bool {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	return !s.closedAt.IsZero()
+}
+
 func (s *StatsWorker) collectStats(
 	ts *timestamppb.Timestamp,
 	streamType livekit.StreamType,
@@ -212,6 +218,7 @@ func coalesce(stats []*livekit.AnalyticsStat) *livekit.AnalyticsStat {
 			coalescedStream.PaddingPackets += analyticsStream.PaddingPackets
 			coalescedStream.PaddingBytes += analyticsStream.PaddingBytes
 			coalescedStream.PacketsLost += analyticsStream.PacketsLost
+			coalescedStream.PacketsOutOfOrder += analyticsStream.PacketsOutOfOrder
 			coalescedStream.Frames += analyticsStream.Frames
 			coalescedStream.Nacks += analyticsStream.Nacks
 			coalescedStream.Plis += analyticsStream.Plis
@@ -220,7 +227,7 @@ func coalesce(stats []*livekit.AnalyticsStat) *livekit.AnalyticsStat {
 			for _, videoLayer := range analyticsStream.VideoLayers {
 				coalescedVideoLayer := coalescedVideoLayers[videoLayer.Layer]
 				if coalescedVideoLayer == nil {
-					coalescedVideoLayer = proto.Clone(videoLayer).(*livekit.AnalyticsVideoLayer)
+					coalescedVideoLayer = protoutils.CloneProto(videoLayer)
 					coalescedVideoLayers[videoLayer.Layer] = coalescedVideoLayer
 				} else {
 					coalescedVideoLayer.Packets += videoLayer.Packets
@@ -265,6 +272,7 @@ func isValid(stat *livekit.AnalyticsStat) bool {
 			int32(analyticsStream.PaddingPackets) < 0 ||
 			int64(analyticsStream.PaddingBytes) < 0 ||
 			int32(analyticsStream.PacketsLost) < 0 ||
+			int32(analyticsStream.PacketsOutOfOrder) < 0 ||
 			int32(analyticsStream.Frames) < 0 ||
 			int32(analyticsStream.Nacks) < 0 ||
 			int32(analyticsStream.Plis) < 0 ||

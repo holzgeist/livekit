@@ -15,6 +15,7 @@
 package clientconfiguration
 
 import (
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -25,19 +26,19 @@ var StaticConfigurations = []ConfigurationItem{
 	// 	Configuration: &livekit.ClientConfiguration{ResumeConnection: livekit.ClientConfigSetting_DISABLED},
 	// 	Merge:         false,
 	// },
-	// {
-	// 	Match: &ScriptMatch{Expr: `c.browser == "safari" && c.os == "ios"`},
-	// 	Configuration: &livekit.ClientConfiguration{DisabledCodecs: &livekit.DisabledCodecs{Codecs: []*livekit.Codec{
-	// 		{Mime: "video/vp9"},
-	// 	}}},
-	// 	Merge: false,
-	// },
+	{
+		Match: &ScriptMatch{Expr: `c.browser == "safari"`},
+		Configuration: &livekit.ClientConfiguration{DisabledCodecs: &livekit.DisabledCodecs{Codecs: []*livekit.Codec{
+			{Mime: mime.MimeTypeAV1.String()},
+		}}},
+		Merge: false,
+	},
 	{
 		Match: &ScriptMatch{Expr: `(c.device_model == "xiaomi 2201117ti" && c.os == "android") ||
 		  ((c.browser == "firefox" || c.browser == "firefox mobile") && (c.os == "linux" || c.os == "android"))`},
 		Configuration: &livekit.ClientConfiguration{
 			DisabledCodecs: &livekit.DisabledCodecs{
-				Publish: []*livekit.Codec{{Mime: "video/h264"}},
+				Publish: []*livekit.Codec{{Mime: mime.MimeTypeH264.String()}},
 			},
 		},
 		Merge: false,

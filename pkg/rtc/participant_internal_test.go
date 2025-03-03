@@ -20,12 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/telemetry/telemetryfakes"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -275,7 +276,7 @@ func TestMuteSetting(t *testing.T) {
 		p.pendingTracks["cid"] = &pendingTrackInfo{trackInfos: []*livekit.TrackInfo{ti}}
 
 		p.SetTrackMuted(livekit.TrackID(ti.Sid), true, false)
-		require.True(t, ti.Muted)
+		require.True(t, p.pendingTracks["cid"].trackInfos[0].Muted)
 	})
 
 	t.Run("can publish a muted track", func(t *testing.T) {
@@ -286,7 +287,7 @@ func TestMuteSetting(t *testing.T) {
 			Muted: true,
 		})
 
-		_, ti, _ := p.getPendingTrack("cid", livekit.TrackType_AUDIO)
+		_, ti, _, _ := p.getPendingTrack("cid", livekit.TrackType_AUDIO, false)
 		require.NotNil(t, ti)
 		require.True(t, ti.Muted)
 	})
@@ -332,77 +333,6 @@ func TestSubscriberAsPrimary(t *testing.T) {
 	})
 }
 
-func TestSetStableTrackID(t *testing.T) {
-	testCases := []struct {
-		name                 string
-		trackInfo            *livekit.TrackInfo
-		unpublished          []*livekit.TrackInfo
-		cid                  string
-		prefix               string
-		remainingUnpublished int
-	}{
-		{
-			name: "first track, generates new ID",
-			trackInfo: &livekit.TrackInfo{
-				Type:   livekit.TrackType_VIDEO,
-				Source: livekit.TrackSource_CAMERA,
-			},
-			prefix: "TR_VC",
-		},
-		{
-			name: "re-using existing ID",
-			trackInfo: &livekit.TrackInfo{
-				Type:   livekit.TrackType_VIDEO,
-				Source: livekit.TrackSource_CAMERA,
-			},
-			unpublished: []*livekit.TrackInfo{
-				{
-					Type:   livekit.TrackType_VIDEO,
-					Source: livekit.TrackSource_SCREEN_SHARE,
-					Sid:    "TR_VC1234",
-				},
-				{
-					Type:   livekit.TrackType_VIDEO,
-					Source: livekit.TrackSource_CAMERA,
-					Sid:    "TR_VC1235",
-				},
-			},
-			cid:                  "TR_VC1235",
-			prefix:               "TR_VC1235",
-			remainingUnpublished: 1,
-		},
-		{
-			name: "mismatch name for reuse",
-			trackInfo: &livekit.TrackInfo{
-				Type:   livekit.TrackType_VIDEO,
-				Source: livekit.TrackSource_CAMERA,
-				Name:   "new_name",
-			},
-			unpublished: []*livekit.TrackInfo{
-				{
-					Type:   livekit.TrackType_VIDEO,
-					Source: livekit.TrackSource_CAMERA,
-					Sid:    "TR_NotUsed",
-				},
-			},
-			prefix:               "TR_VC",
-			remainingUnpublished: 1,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			p := newParticipantForTest("test")
-			p.unpublishedTracks = tc.unpublished
-
-			ti := tc.trackInfo
-			p.setStableTrackID(tc.cid, ti)
-			require.Contains(t, ti.Sid, tc.prefix)
-			require.Len(t, p.unpublishedTracks, tc.remainingUnpublished)
-		})
-	}
-}
-
 func TestDisableCodecs(t *testing.T) {
 	participant := newParticipantForTestWithOpts("123", &participantOpts{
 		publisher: false,
@@ -427,7 +357,7 @@ func TestDisableCodecs(t *testing.T) {
 	codecs := transceiver.Receiver().GetParameters().Codecs
 	var found264 bool
 	for _, c := range codecs {
-		if strings.EqualFold(c.MimeType, "video/h264") {
+		if mime.IsMimeTypeStringH264(c.MimeType) {
 			found264 = true
 		}
 	}
@@ -461,7 +391,7 @@ func TestDisableCodecs(t *testing.T) {
 	codecs = transceiver.Receiver().GetParameters().Codecs
 	found264 = false
 	for _, c := range codecs {
-		if strings.EqualFold(c.MimeType, "video/h264") {
+		if mime.IsMimeTypeStringH264(c.MimeType) {
 			found264 = true
 		}
 	}
@@ -481,7 +411,7 @@ func TestDisablePublishCodec(t *testing.T) {
 	})
 
 	for _, codec := range participant.enabledPublishCodecs {
-		require.NotEqual(t, strings.ToLower(codec.Mime), "video/h264")
+		require.False(t, mime.IsMimeTypeStringH264(codec.Mime))
 	}
 
 	sink := &routingfakes.FakeMessageSink{}
@@ -492,7 +422,7 @@ func TestDisablePublishCodec(t *testing.T) {
 			if published := res.GetTrackPublished(); published != nil {
 				publishReceived.Store(true)
 				require.NotEmpty(t, published.Track.Codecs)
-				require.Equal(t, "video/vp8", strings.ToLower(published.Track.Codecs[0].MimeType))
+				require.True(t, mime.IsMimeTypeStringVP8(published.Track.Codecs[0].MimeType))
 			}
 		}
 		return nil
@@ -517,7 +447,7 @@ func TestDisablePublishCodec(t *testing.T) {
 			if published := res.GetTrackPublished(); published != nil {
 				publishReceived.Store(true)
 				require.NotEmpty(t, published.Track.Codecs)
-				require.Equal(t, "video/vp8", strings.ToLower(published.Track.Codecs[0].MimeType))
+				require.True(t, mime.IsMimeTypeStringVP8(published.Track.Codecs[0].MimeType))
 			}
 		}
 		return nil
@@ -564,13 +494,20 @@ func TestPreferVideoCodecForPublisher(t *testing.T) {
 		require.NoError(t, err)
 		transceiver, err := pc.AddTransceiverFromTrack(track, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendrecv})
 		require.NoError(t, err)
-		sdp, err := pc.CreateOffer(nil)
-		require.NoError(t, err)
-		pc.SetLocalDescription(sdp)
 		codecs := transceiver.Receiver().GetParameters().Codecs
 
+		if i > 0 {
+			// the negotiated codecs order could be updated by first negotiation, reorder to make h264 not preferred
+			for mime.IsMimeTypeStringH264(codecs[0].MimeType) {
+				codecs = append(codecs[1:], codecs[0])
+			}
+		}
 		// h264 should not be preferred
-		require.NotEqual(t, codecs[0].MimeType, "video/h264")
+		require.False(t, mime.IsMimeTypeStringH264(codecs[0].MimeType), "codecs", codecs)
+
+		sdp, err := pc.CreateOffer(nil)
+		require.NoError(t, err)
+		require.NoError(t, pc.SetLocalDescription(sdp))
 
 		sink := &routingfakes.FakeMessageSink{}
 		participant.SetResponseSink(sink)
@@ -599,7 +536,7 @@ func TestPreferVideoCodecForPublisher(t *testing.T) {
 				if videoSectionIndex == i {
 					codecs, err := codecsFromMediaDescription(m)
 					require.NoError(t, err)
-					if strings.EqualFold(codecs[0].Name, "h264") {
+					if mime.IsMimeTypeCodecStringH264(codecs[0].Name) {
 						h264Preferred = true
 						break
 					}
@@ -621,7 +558,7 @@ func TestPreferAudioCodecForRed(t *testing.T) {
 	me := webrtc.MediaEngine{}
 	me.RegisterDefaultCodecs()
 	require.NoError(t, me.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: redCodecCapability,
+		RTPCodecCapability: RedCodecCapability,
 		PayloadType:        63,
 	}, webrtc.RTPCodecTypeAudio))
 
@@ -697,7 +634,7 @@ func TestPreferAudioCodecForRed(t *testing.T) {
 						}
 						require.True(t, nackEnabled, "nack should be enabled for opus")
 
-						if strings.EqualFold(codecs[0].Name, "red") {
+						if mime.IsMimeTypeCodecStringRED(codecs[0].Name) {
 							redPreferred = true
 							break
 						}
