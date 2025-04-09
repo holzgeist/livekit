@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils"
 	"github.com/livekit/protocol/webhook"
 
 	"github.com/livekit/livekit-server/version"
@@ -30,6 +31,7 @@ import (
 	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/rtc/types/typesfakes"
+	"github.com/livekit/livekit-server/pkg/sfu"
 	"github.com/livekit/livekit-server/pkg/sfu/audio"
 	"github.com/livekit/livekit-server/pkg/telemetry"
 	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
@@ -109,7 +111,8 @@ func TestRoomJoin(t *testing.T) {
 
 		stateChangeCB := p.OnStateChangeArgsForCall(0)
 		require.NotNil(t, stateChangeCB)
-		stateChangeCB(p, livekit.ParticipantInfo_ACTIVE)
+		p.StateReturns(livekit.ParticipantInfo_ACTIVE)
+		stateChangeCB(p)
 
 		// it should become a subscriber when connectivity changes
 		numTracks := 0
@@ -284,7 +287,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "last version is enqueued",
 			pi:       subscriber1v2,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)}, // clone the existing value since it can be modified when setting to disconnected
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v1)}, // clone the existing value since it can be modified when setting to disconnected
 			validate: func(t *testing.T, rm *Room, _ []*participantUpdate) {
 				queued := rm.batchedUpdates[livekit.ParticipantIdentity(identity)]
 				require.NotNil(t, queued)
@@ -294,7 +297,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:      "latest version when immediate",
 			pi:        subscriber1v2,
-			existing:  &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)},
+			existing:  &participantUpdate{pi: utils.CloneProto(subscriber1v1)},
 			immediate: true,
 			expected:  []*participantUpdate{{pi: subscriber1v2}},
 			validate: func(t *testing.T, rm *Room, _ []*participantUpdate) {
@@ -305,7 +308,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "out of order updates are rejected",
 			pi:       subscriber1v1,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v2).(*livekit.ParticipantInfo)},
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v2)},
 			validate: func(t *testing.T, rm *Room, updates []*participantUpdate) {
 				queued := rm.batchedUpdates[livekit.ParticipantIdentity(identity)]
 				requirePIEquals(t, subscriber1v2, queued.pi)
@@ -315,7 +318,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 			name:        "sid change is broadcasted immediately with synthsized disconnect",
 			pi:          publisher2,
 			closeReason: types.ParticipantCloseReasonServiceRequestRemoveParticipant, // just to test if update contain the close reason
-			existing:    &participantUpdate{pi: proto.Clone(subscriber1v2).(*livekit.ParticipantInfo), closeReason: types.ParticipantCloseReasonStale},
+			existing:    &participantUpdate{pi: utils.CloneProto(subscriber1v2), closeReason: types.ParticipantCloseReasonStale},
 			expected: []*participantUpdate{
 				{
 					pi: &livekit.ParticipantInfo{
@@ -333,7 +336,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "when switching to publisher, queue is cleared",
 			pi:       publisher1v2,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)},
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v1)},
 			expected: []*participantUpdate{{pi: publisher1v2}},
 			validate: func(t *testing.T, rm *Room, updates []*participantUpdate) {
 				require.Empty(t, rm.batchedUpdates)
@@ -622,7 +625,7 @@ func TestDataChannel(t *testing.T) {
 				}
 				setSource(mode, packet, p)
 
-				packetExp := proto.Clone(packet).(*livekit.DataPacket)
+				packetExp := utils.CloneProto(packet)
 				if mode != legacySID {
 					packetExp.ParticipantIdentity = string(p.Identity())
 					packetExp.GetUser().ParticipantIdentity = string(p.Identity())
@@ -635,11 +638,11 @@ func TestDataChannel(t *testing.T) {
 				for _, op := range participants {
 					fp := op.(*typesfakes.FakeLocalParticipant)
 					if fp == p {
-						require.Zero(t, fp.SendDataPacketCallCount())
+						require.Zero(t, fp.SendDataMessageCallCount())
 						continue
 					}
-					require.Equal(t, 1, fp.SendDataPacketCallCount())
-					_, got := fp.SendDataPacketArgsForCall(0)
+					require.Equal(t, 1, fp.SendDataMessageCallCount())
+					_, got := fp.SendDataMessageArgsForCall(0)
 					require.Equal(t, encoded, got)
 				}
 			})
@@ -667,7 +670,7 @@ func TestDataChannel(t *testing.T) {
 				setSource(mode, packet, p)
 				setDest(mode, packet, p1)
 
-				packetExp := proto.Clone(packet).(*livekit.DataPacket)
+				packetExp := utils.CloneProto(packet)
 				if mode != legacySID {
 					packetExp.ParticipantIdentity = string(p.Identity())
 					packetExp.GetUser().ParticipantIdentity = string(p.Identity())
@@ -682,11 +685,11 @@ func TestDataChannel(t *testing.T) {
 				for _, op := range participants {
 					fp := op.(*typesfakes.FakeLocalParticipant)
 					if fp != p1 {
-						require.Zero(t, fp.SendDataPacketCallCount())
+						require.Zero(t, fp.SendDataMessageCallCount())
 					}
 				}
-				require.Equal(t, 1, p1.SendDataPacketCallCount())
-				_, got := p1.SendDataPacketArgsForCall(0)
+				require.Equal(t, 1, p1.SendDataMessageCallCount())
+				_, got := p1.SendDataMessageArgsForCall(0)
 				require.Equal(t, encoded, got)
 			})
 		}
@@ -714,7 +717,7 @@ func TestDataChannel(t *testing.T) {
 		// no one should've been sent packet
 		for _, op := range participants {
 			fp := op.(*typesfakes.FakeLocalParticipant)
-			require.Zero(t, fp.SendDataPacketCallCount())
+			require.Zero(t, fp.SendDataMessageCallCount())
 		}
 	})
 }
@@ -745,7 +748,8 @@ func TestHiddenParticipants(t *testing.T) {
 
 		stateChangeCB := hidden.OnStateChangeArgsForCall(0)
 		require.NotNil(t, stateChangeCB)
-		stateChangeCB(hidden, livekit.ParticipantInfo_ACTIVE)
+		hidden.StateReturns(livekit.ParticipantInfo_ACTIVE)
+		stateChangeCB(hidden)
 
 		require.Eventually(t, func() bool { return hidden.SubscribeToTrackCallCount() == 2 }, 5*time.Second, 10*time.Millisecond)
 	})
@@ -801,9 +805,11 @@ func newRoomWithParticipants(t *testing.T, opts testRoomOpts) *Room {
 			EmptyTimeout:     5 * 60,
 			DepartureTimeout: 1,
 		},
-		&config.AudioConfig{
-			UpdateInterval:  audioUpdateInterval,
-			SmoothIntervals: opts.audioSmoothIntervals,
+		&sfu.AudioConfig{
+			AudioLevelConfig: audio.AudioLevelConfig{
+				UpdateInterval:  audioUpdateInterval,
+				SmoothIntervals: opts.audioSmoothIntervals,
+			},
 		},
 		&livekit.ServerInfo{
 			Edition:  livekit.ServerInfo_Standard,
@@ -812,8 +818,8 @@ func newRoomWithParticipants(t *testing.T, opts testRoomOpts) *Room {
 			NodeId:   "testnode",
 			Region:   "testregion",
 		},
-		telemetry.NewTelemetryService(webhook.NewDefaultNotifier("", "", nil), &telemetryfakes.FakeAnalyticsService{}),
-		nil, nil,
+		telemetry.NewTelemetryService(webhook.NewDefaultNotifier(webhook.DefaultWebHookConfig, ""), &telemetryfakes.FakeAnalyticsService{}),
+		nil, nil, nil,
 	)
 	for i := 0; i < opts.num+opts.numHidden; i++ {
 		identity := livekit.ParticipantIdentity(fmt.Sprintf("p%d", i))

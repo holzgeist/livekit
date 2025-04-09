@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -145,6 +146,26 @@ func (t *telemetryService) ParticipantResumed(
 	reason livekit.ReconnectReason,
 ) {
 	t.enqueue(func() {
+		// create a worker if needed.
+		//
+		// Signalling channel stats collector and media channel stats collector could both call
+		// ParticipantJoined and ParticipantLeft.
+		//
+		// On a resume, the signalling channel collector would call `ParticipantLeft` which would close
+		// the corresponding participant's stats worker.
+		//
+		// So, on a successful resume, create the worker if needed.
+		_, found := t.getOrCreateWorker(
+			ctx,
+			livekit.RoomID(room.Sid),
+			livekit.RoomName(room.Name),
+			livekit.ParticipantID(participant.Sid),
+			livekit.ParticipantIdentity(participant.Identity),
+		)
+		if !found {
+			prometheus.AddParticipant()
+		}
+
 		ev := newParticipantEvent(livekit.AnalyticsEventType_PARTICIPANT_RESUMED, room, participant)
 		ev.ClientMeta = &livekit.AnalyticsClientMeta{
 			Node:            string(nodeID),
@@ -236,14 +257,14 @@ func (t *telemetryService) TrackMaxSubscribedVideoQuality(
 	ctx context.Context,
 	participantID livekit.ParticipantID,
 	track *livekit.TrackInfo,
-	mime string,
+	mime mime.MimeType,
 	maxQuality livekit.VideoQuality,
 ) {
 	t.enqueue(func() {
 		room := t.getRoomDetails(participantID)
 		ev := newTrackEvent(livekit.AnalyticsEventType_TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY, room, participantID, track)
 		ev.MaxSubscribedVideoQuality = maxQuality
-		ev.Mime = mime
+		ev.Mime = mime.String()
 		t.SendEvent(ctx, ev)
 	})
 }
@@ -373,7 +394,7 @@ func (t *telemetryService) TrackPublishRTPStats(
 	ctx context.Context,
 	participantID livekit.ParticipantID,
 	trackID livekit.TrackID,
-	mimeType string,
+	mimeType mime.MimeType,
 	layer int,
 	stats *livekit.RTPStats,
 ) {
@@ -382,7 +403,7 @@ func (t *telemetryService) TrackPublishRTPStats(
 		ev := newRoomEvent(livekit.AnalyticsEventType_TRACK_PUBLISH_STATS, room)
 		ev.ParticipantId = string(participantID)
 		ev.TrackId = string(trackID)
-		ev.Mime = mimeType
+		ev.Mime = mimeType.String()
 		ev.VideoLayer = int32(layer)
 		ev.RtpStats = stats
 		t.SendEvent(ctx, ev)
@@ -393,7 +414,7 @@ func (t *telemetryService) TrackSubscribeRTPStats(
 	ctx context.Context,
 	participantID livekit.ParticipantID,
 	trackID livekit.TrackID,
-	mimeType string,
+	mimeType mime.MimeType,
 	stats *livekit.RTPStats,
 ) {
 	t.enqueue(func() {
@@ -401,7 +422,7 @@ func (t *telemetryService) TrackSubscribeRTPStats(
 		ev := newRoomEvent(livekit.AnalyticsEventType_TRACK_SUBSCRIBE_STATS, room)
 		ev.ParticipantId = string(participantID)
 		ev.TrackId = string(trackID)
-		ev.Mime = mimeType
+		ev.Mime = mimeType.String()
 		ev.RtpStats = stats
 		t.SendEvent(ctx, ev)
 	})
@@ -476,6 +497,39 @@ func (t *telemetryService) IngressEnded(ctx context.Context, info *livekit.Ingre
 		})
 
 		t.SendEvent(ctx, newIngressEvent(livekit.AnalyticsEventType_INGRESS_ENDED, info))
+	})
+}
+
+func (t *telemetryService) Report(ctx context.Context, reportInfo *livekit.ReportInfo) {
+	t.enqueue(func() {
+		ev := &livekit.AnalyticsEvent{
+			Type:      livekit.AnalyticsEventType_REPORT,
+			Timestamp: timestamppb.Now(),
+			Report:    reportInfo,
+		}
+		t.SendEvent(ctx, ev)
+	})
+}
+
+func (t *telemetryService) APICall(ctx context.Context, apiCallInfo *livekit.APICallInfo) {
+	t.enqueue(func() {
+		ev := &livekit.AnalyticsEvent{
+			Type:      livekit.AnalyticsEventType_API_CALL,
+			Timestamp: timestamppb.Now(),
+			ApiCall:   apiCallInfo,
+		}
+		t.SendEvent(ctx, ev)
+	})
+}
+
+func (t *telemetryService) Webhook(ctx context.Context, webhookInfo *livekit.WebhookInfo) {
+	t.enqueue(func() {
+		ev := &livekit.AnalyticsEvent{
+			Type:      livekit.AnalyticsEventType_WEBHOOK,
+			Timestamp: timestamppb.Now(),
+			Webhook:   webhookInfo,
+		}
+		t.SendEvent(ctx, ev)
 	})
 }
 

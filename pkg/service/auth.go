@@ -107,6 +107,13 @@ func (m *APIKeyAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	next.ServeHTTP(w, r)
 }
 
+func WithAPIKey(ctx context.Context, grants *auth.ClaimGrants, apiKey string) context.Context {
+	return context.WithValue(ctx, grantsKey{}, &grantsValue{
+		claims: grants,
+		apiKey: apiKey,
+	})
+}
+
 func GetGrants(ctx context.Context) *auth.ClaimGrants {
 	val := ctx.Value(grantsKey{})
 	v, ok := val.(*grantsValue)
@@ -209,6 +216,19 @@ func EnsureSIPCallPermission(ctx context.Context) error {
 	if claims == nil || claims.SIP == nil || !claims.SIP.Call {
 		return ErrPermissionDenied
 	}
+	return nil
+}
+
+func EnsureForwardPermission(ctx context.Context, source livekit.RoomName, destination livekit.RoomName) error {
+	claims := GetGrants(ctx)
+	if claims == nil || claims.Video == nil {
+		return ErrPermissionDenied
+	}
+
+	if !claims.Video.RoomAdmin || source != livekit.RoomName(claims.Video.Room) || destination != livekit.RoomName(claims.Video.DestinationRoom) {
+		return ErrPermissionDenied
+	}
+
 	return nil
 }
 

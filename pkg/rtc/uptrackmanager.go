@@ -31,7 +31,6 @@ var (
 )
 
 type UpTrackManagerParams struct {
-	SID              livekit.ParticipantID
 	Logger           logger.Logger
 	VersionGenerator utils.TimedVersionGenerator
 }
@@ -117,16 +116,15 @@ func (u *UpTrackManager) OnPublishedTrackUpdated(f func(track types.MediaTrack))
 	u.onTrackUpdated = f
 }
 
-func (u *UpTrackManager) SetPublishedTrackMuted(trackID livekit.TrackID, muted bool) types.MediaTrack {
-	u.lock.RLock()
-	track := u.publishedTracks[trackID]
-	u.lock.RUnlock()
-
+func (u *UpTrackManager) SetPublishedTrackMuted(trackID livekit.TrackID, muted bool) (types.MediaTrack, bool) {
+	changed := false
+	track := u.GetPublishedTrack(trackID)
 	if track != nil {
 		currentMuted := track.IsMuted()
 		track.SetMuted(muted)
 
 		if currentMuted != track.IsMuted() {
+			changed = true
 			u.params.Logger.Debugw("publisher mute status changed", "trackID", trackID, "muted", track.IsMuted())
 			if u.onTrackUpdated != nil {
 				u.onTrackUpdated(track)
@@ -134,7 +132,7 @@ func (u *UpTrackManager) SetPublishedTrackMuted(trackID livekit.TrackID, muted b
 		}
 	}
 
-	return track
+	return track, changed
 }
 
 func (u *UpTrackManager) GetPublishedTrack(trackID livekit.TrackID) types.MediaTrack {
@@ -236,34 +234,28 @@ func (u *UpTrackManager) HasPermission(trackID livekit.TrackID, subIdentity live
 	return u.hasPermissionLocked(trackID, subIdentity)
 }
 
-func (u *UpTrackManager) UpdateAudioTrack(update *livekit.UpdateLocalAudioTrack) error {
+func (u *UpTrackManager) UpdatePublishedAudioTrack(update *livekit.UpdateLocalAudioTrack) types.MediaTrack {
 	track := u.GetPublishedTrack(livekit.TrackID(update.TrackSid))
-	if track == nil {
-		u.params.Logger.Warnw("could not find track", nil, "trackID", livekit.TrackID(update.TrackSid))
-		return errors.New("could not find published track")
+	if track != nil {
+		track.UpdateAudioTrack(update)
+		if u.onTrackUpdated != nil {
+			u.onTrackUpdated(track)
+		}
 	}
 
-	track.UpdateAudioTrack(update)
-	if u.onTrackUpdated != nil {
-		u.onTrackUpdated(track)
-	}
-
-	return nil
+	return track
 }
 
-func (u *UpTrackManager) UpdateVideoTrack(update *livekit.UpdateLocalVideoTrack) error {
+func (u *UpTrackManager) UpdatePublishedVideoTrack(update *livekit.UpdateLocalVideoTrack) types.MediaTrack {
 	track := u.GetPublishedTrack(livekit.TrackID(update.TrackSid))
-	if track == nil {
-		u.params.Logger.Warnw("could not find track", nil, "trackID", livekit.TrackID(update.TrackSid))
-		return errors.New("could not find published track")
+	if track != nil {
+		track.UpdateVideoTrack(update)
+		if u.onTrackUpdated != nil {
+			u.onTrackUpdated(track)
+		}
 	}
 
-	track.UpdateVideoTrack(update)
-	if u.onTrackUpdated != nil {
-		u.onTrackUpdated(track)
-	}
-
-	return nil
+	return track
 }
 
 func (u *UpTrackManager) AddPublishedTrack(track types.MediaTrack) {

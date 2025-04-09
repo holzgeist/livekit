@@ -132,6 +132,7 @@ func (fc *FrameChain) EndUpdateActive() {
 	// if the chain transit from inactive to active, reset broken to wait a decodable SWITCH frame
 	if !fc.active {
 		fc.broken = true
+		fc.logger.Debugw("frame chain broken by inactive", "chanIdx", fc.chainIdx)
 	}
 
 	fc.active = active

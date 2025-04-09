@@ -21,14 +21,11 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/pion/rtp"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
-)
-
-const (
-	MimeTypeAudioRed = "audio/red"
 )
 
 var (
@@ -41,6 +38,7 @@ type RedPrimaryReceiver struct {
 	downTrackSpreader *DownTrackSpreader
 	logger            logger.Logger
 	closed            atomic.Bool
+	redPT             uint8
 
 	firstPktReceived bool
 	lastSeq          uint16
@@ -54,6 +52,7 @@ func NewRedPrimaryReceiver(receiver TrackReceiver, dsp DownTrackSpreaderParams) 
 		TrackReceiver:     receiver,
 		downTrackSpreader: NewDownTrackSpreader(dsp),
 		logger:            dsp.Logger,
+		redPT:             uint8(receiver.Codec().PayloadType),
 	}
 }
 
@@ -61,6 +60,13 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 	// extract primary payload from RED and forward to downtracks
 	if r.downTrackSpreader.DownTrackCount() == 0 {
 		return 0
+	}
+
+	if pkt.Packet.PayloadType != r.redPT {
+		// forward non-red packet directly
+		return r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+			_ = dt.WriteRTP(pkt, spatialLayer)
+		})
 	}
 
 	pkts, err := r.getSendPktsFromRed(pkt.Packet)
@@ -73,7 +79,7 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 	for i, sendPkt := range pkts {
 		pPkt := *pkt
 		if i != len(pkts)-1 {
-			// patch extended sequence number and time stmap for all but the last packet,
+			// patch extended sequence number and time stamp for all but the last packet,
 			// last packet is the primary payload
 			pPkt.ExtSequenceNumber -= uint64(pkts[len(pkts)-1].SequenceNumber - pkts[i].SequenceNumber)
 			pPkt.ExtTimestamp -= uint64(pkts[len(pkts)-1].Timestamp - pkts[i].Timestamp)
@@ -89,6 +95,17 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 	return count
 }
 
+func (r *RedPrimaryReceiver) ForwardRTCPSenderReport(
+	payloadType webrtc.PayloadType,
+	isSVC bool,
+	layer int32,
+	publisherSRData *livekit.RTCPSenderReportState,
+) {
+	r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+		_ = dt.HandleRTCPSenderReportData(payloadType, isSVC, layer, publisherSRData)
+	})
+}
+
 func (r *RedPrimaryReceiver) AddDownTrack(track TrackSender) error {
 	if r.closed.Load() {
 		return ErrReceiverClosed
@@ -97,8 +114,6 @@ func (r *RedPrimaryReceiver) AddDownTrack(track TrackSender) error {
 	if r.downTrackSpreader.HasDownTrack(track.SubscriberID()) {
 		r.logger.Infow("subscriberID already exists, replacing downtrack", "subscriberID", track.SubscriberID())
 	}
-
-	track.TrackInfoAvailable()
 
 	r.downTrackSpreader.Store(track)
 	r.logger.Debugw("red primary receiver downtrack added", "subscriberID", track.SubscriberID())
@@ -114,6 +129,16 @@ func (r *RedPrimaryReceiver) DeleteDownTrack(subscriberID livekit.ParticipantID)
 	r.logger.Debugw("red primary receiver downtrack deleted", "subscriberID", subscriberID)
 }
 
+func (r *RedPrimaryReceiver) GetDownTracks() []TrackSender {
+	return r.downTrackSpreader.GetDownTracks()
+}
+
+func (r *RedPrimaryReceiver) ResyncDownTracks() {
+	r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+		dt.Resync()
+	})
+}
+
 func (r *RedPrimaryReceiver) IsClosed() bool {
 	return r.closed.Load()
 }
@@ -127,8 +152,8 @@ func (r *RedPrimaryReceiver) Close() {
 	closeTrackSenders(r.downTrackSpreader.ResetAndGetDownTracks())
 }
 
-func (r *RedPrimaryReceiver) ReadRTP(buf []byte, layer uint8, sn uint16) (int, error) {
-	n, err := r.TrackReceiver.ReadRTP(buf, layer, sn)
+func (r *RedPrimaryReceiver) ReadRTP(buf []byte, layer uint8, esn uint64) (int, error) {
+	n, err := r.TrackReceiver.ReadRTP(buf, layer, esn)
 	if err != nil {
 		return n, err
 	}
@@ -246,7 +271,7 @@ func extractPktsFromRed(redPkt *rtp.Packet, recoverBits byte) ([]*rtp.Packet, er
 		if b.primary {
 			header := redPkt.Header
 			header.PayloadType = b.pt
-			pkts = append(pkts, &rtp.Packet{Header: redPkt.Header, Payload: payload})
+			pkts = append(pkts, &rtp.Packet{Header: header, Payload: payload})
 			break
 		}
 

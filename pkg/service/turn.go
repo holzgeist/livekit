@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/jxskiss/base62"
-	"github.com/pion/turn/v2"
+	"github.com/pion/turn/v4"
 	"github.com/pkg/errors"
 
 	"github.com/livekit/protocol/auth"
@@ -162,6 +162,19 @@ func NewTURNAuthHandler(keyProvider auth.KeyProvider) *TURNAuthHandler {
 
 func (h *TURNAuthHandler) CreateUsername(apiKey string, pID livekit.ParticipantID) string {
 	return base62.EncodeToString([]byte(fmt.Sprintf("%s|%s", apiKey, pID)))
+}
+
+func (h *TURNAuthHandler) ParseUsername(username string) (apiKey string, pID livekit.ParticipantID, err error) {
+	decoded, err := base62.DecodeString(username)
+	if err != nil {
+		return "", "", err
+	}
+	parts := strings.Split(string(decoded), "|")
+	if len(parts) != 2 {
+		return "", "", errors.New("invalid username")
+	}
+
+	return parts[0], livekit.ParticipantID(parts[1]), nil
 }
 
 func (h *TURNAuthHandler) CreatePassword(apiKey string, pID livekit.ParticipantID) (string, error) {

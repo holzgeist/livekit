@@ -15,12 +15,10 @@
 package connectionquality
 
 import (
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/frostbyte73/core"
-	"github.com/pion/webrtc/v3"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -28,6 +26,8 @@ import (
 	"github.com/livekit/protocol/logger"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
+	"github.com/livekit/livekit-server/pkg/sfu/rtpstats"
 )
 
 const (
@@ -42,14 +42,12 @@ type ConnectionStatsReceiverProvider interface {
 
 type ConnectionStatsSenderProvider interface {
 	GetDeltaStatsSender() map[uint32]*buffer.StreamStatsWithLayers
-	GetLastReceiverReportTime() time.Time
-	GetTotalPacketsSent() uint64
+	GetPrimaryStreamLastReceiverReportTime() time.Time
+	GetPrimaryStreamPacketsSent() uint64
 }
 
 type ConnectionStatsParams struct {
 	UpdateInterval     time.Duration
-	MimeType           string
-	IsFECEnabled       bool
 	IncludeRTT         bool
 	IncludeJitter      bool
 	EnableBitrateScore bool
@@ -60,6 +58,8 @@ type ConnectionStatsParams struct {
 
 type ConnectionStats struct {
 	params ConnectionStatsParams
+
+	codecMimeType atomic.Value // mime.MimeType
 
 	isStarted atomic.Bool
 	isVideo   atomic.Bool
@@ -79,7 +79,6 @@ func NewConnectionStats(params ConnectionStatsParams) *ConnectionStats {
 	return &ConnectionStats{
 		params: params,
 		scorer: newQualityScorer(qualityScorerParams{
-			PacketLossWeight:   getPacketLossWeight(params.MimeType, params.IsFECEnabled), // LK-TODO: have to notify codec change?
 			IncludeRTT:         params.IncludeRTT,
 			IncludeJitter:      params.IncludeJitter,
 			EnableBitrateScore: params.EnableBitrateScore,
@@ -88,31 +87,30 @@ func NewConnectionStats(params ConnectionStatsParams) *ConnectionStats {
 	}
 }
 
-func (cs *ConnectionStats) start(trackInfo *livekit.TrackInfo) {
-	cs.isVideo.Store(trackInfo.Type == livekit.TrackType_VIDEO)
+func (cs *ConnectionStats) StartAt(codecMimeType mime.MimeType, isFECEnabled bool, at time.Time) {
+	if cs.isStarted.Swap(true) {
+		return
+	}
+
+	cs.isVideo.Store(mime.IsMimeTypeVideo(codecMimeType))
+	cs.codecMimeType.Store(codecMimeType)
+	cs.scorer.StartAt(getPacketLossWeight(codecMimeType, isFECEnabled), at)
+
 	go cs.updateStatsWorker()
 }
 
-func (cs *ConnectionStats) StartAt(trackInfo *livekit.TrackInfo, at time.Time) {
-	if cs.isStarted.Swap(true) {
-		return
-	}
-
-	cs.scorer.StartAt(at)
-	cs.start(trackInfo)
-}
-
-func (cs *ConnectionStats) Start(trackInfo *livekit.TrackInfo) {
-	if cs.isStarted.Swap(true) {
-		return
-	}
-
-	cs.scorer.Start()
-	cs.start(trackInfo)
+func (cs *ConnectionStats) Start(codecMimeType mime.MimeType, isFECEnabled bool) {
+	cs.StartAt(codecMimeType, isFECEnabled, time.Now())
 }
 
 func (cs *ConnectionStats) Close() {
 	cs.done.Break()
+}
+
+func (cs *ConnectionStats) UpdateCodec(codecMimeType mime.MimeType, isFECEnabled bool) {
+	cs.isVideo.Store(mime.IsMimeTypeVideo(codecMimeType))
+	cs.codecMimeType.Store(codecMimeType)
+	cs.scorer.UpdatePacketLossWeight(getPacketLossWeight(codecMimeType, isFECEnabled))
 }
 
 func (cs *ConnectionStats) OnStatsUpdate(fn func(cs *ConnectionStats, stat *livekit.AnalyticsStat)) {
@@ -203,12 +201,13 @@ func (cs *ConnectionStats) GetScoreAndQuality() (float32, livekit.ConnectionQual
 	return cs.scorer.GetMOSAndQuality()
 }
 
-func (cs *ConnectionStats) updateScoreWithAggregate(agg *buffer.RTPDeltaInfo, lastRTCPAt time.Time, at time.Time) float32 {
+func (cs *ConnectionStats) updateScoreWithAggregate(agg *rtpstats.RTPDeltaInfo, lastRTCPAt time.Time, at time.Time) float32 {
 	var stat windowStat
 	if agg != nil {
 		stat.startedAt = agg.StartTime
 		stat.duration = agg.EndTime.Sub(agg.StartTime)
-		stat.packetsExpected = agg.Packets + agg.PacketsPadding
+		stat.packets = agg.Packets
+		stat.packetsPadding = agg.PacketsPadding
 		stat.packetsLost = agg.PacketsLost
 		stat.packetsMissing = agg.PacketsMissing
 		stat.packetsOutOfOrder = agg.PacketsOutOfOrder
@@ -243,7 +242,7 @@ func (cs *ConnectionStats) updateScoreFromReceiverReport(at time.Time) (float32,
 	streams := cs.params.SenderProvider.GetDeltaStatsSender()
 	if len(streams) == 0 {
 		//  check for receiver report not received for a while
-		marker := cs.params.SenderProvider.GetLastReceiverReportTime()
+		marker := cs.params.SenderProvider.GetPrimaryStreamLastReceiverReportTime()
 		if marker.IsZero() || streamingStartedAt.After(marker) {
 			marker = streamingStartedAt
 		}
@@ -259,48 +258,55 @@ func (cs *ConnectionStats) updateScoreFromReceiverReport(at time.Time) (float32,
 
 	// delta stat duration could be large due to not receiving receiver report for a long time (for example, due to mute),
 	// adjust to streaming start if necessary
-	agg := toAggregateDeltaInfo(streams)
-	if streamingStartedAt.After(cs.params.SenderProvider.GetLastReceiverReportTime()) {
+	if streamingStartedAt.After(cs.params.SenderProvider.GetPrimaryStreamLastReceiverReportTime()) {
 		// last receiver report was before streaming started, wait for next one
 		mos, _ := cs.scorer.GetMOSAndQuality()
 		return mos, streams
 	}
 
+	agg := toAggregateDeltaInfo(streams, true)
+	if agg == nil {
+		// no receiver report in the window
+		mos, _ := cs.scorer.GetMOSAndQuality()
+		return mos, streams
+	}
 	if streamingStartedAt.After(agg.StartTime) {
 		agg.StartTime = streamingStartedAt
 	}
 	return cs.updateScoreWithAggregate(agg, time.Time{}, at), streams
 }
 
-func (cs *ConnectionStats) updateScoreAt(at time.Time) (float32, map[uint32]*buffer.StreamStatsWithLayers) {
+func (cs *ConnectionStats) updateScoreAt(at time.Time) (float32, map[uint32]*buffer.StreamStatsWithLayers, bool) {
 	if cs.params.SenderProvider != nil {
 		// receiver report based quality scoring, use stats from receiver report for scoring
-		return cs.updateScoreFromReceiverReport(at)
+		score, streams := cs.updateScoreFromReceiverReport(at)
+		return score, streams, true
 	}
 
 	if cs.params.ReceiverProvider == nil {
-		return MinMOS, nil
+		return MinMOS, nil, false
 	}
 
 	streams := cs.params.ReceiverProvider.GetDeltaStats()
 	if len(streams) == 0 {
 		mos, _ := cs.scorer.GetMOSAndQuality()
-		return mos, nil
+		return mos, nil, false
 	}
 
-	deltaInfoList := make([]*buffer.RTPDeltaInfo, 0, len(streams))
-	for _, s := range streams {
-		deltaInfoList = append(deltaInfoList, s.RTPStats)
+	agg := toAggregateDeltaInfo(streams, false)
+	if agg == nil {
+		// no receiver report in the window
+		mos, _ := cs.scorer.GetMOSAndQuality()
+		return mos, streams, false
 	}
-	agg := buffer.AggregateRTPDeltaInfo(deltaInfoList)
-	return cs.updateScoreWithAggregate(agg, cs.params.ReceiverProvider.GetLastSenderReportTime(), at), streams
+	return cs.updateScoreWithAggregate(agg, cs.params.ReceiverProvider.GetLastSenderReportTime(), at), streams, false
 }
 
 func (cs *ConnectionStats) updateStreamingStart(at time.Time) time.Time {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	packetsSent := cs.params.SenderProvider.GetTotalPacketsSent()
+	packetsSent := cs.params.SenderProvider.GetPrimaryStreamPacketsSent()
 	if packetsSent > cs.packetsSent {
 		if cs.streamingStartedAt.IsZero() {
 			// the start could be anywhere after last update, but using `at` as this is not required to be accurate
@@ -319,12 +325,15 @@ func (cs *ConnectionStats) updateStreamingStart(at time.Time) time.Time {
 }
 
 func (cs *ConnectionStats) getStat() {
-	score, streams := cs.updateScoreAt(time.Time{})
+	score, streams, isSender := cs.updateScoreAt(time.Time{})
 
 	if cs.onStatsUpdate != nil && len(streams) != 0 {
 		analyticsStreams := make([]*livekit.AnalyticsStream, 0, len(streams))
 		for ssrc, stream := range streams {
-			as := toAnalyticsStream(ssrc, stream.RTPStats)
+			as := toAnalyticsStream(ssrc, stream.RTPStats, stream.RTPStatsRemoteView, isSender)
+			if as == nil {
+				continue
+			}
 
 			//
 			// add video layer if either
@@ -343,11 +352,13 @@ func (cs *ConnectionStats) getStat() {
 			analyticsStreams = append(analyticsStreams, as)
 		}
 
-		cs.onStatsUpdate(cs, &livekit.AnalyticsStat{
-			Score:   score,
-			Streams: analyticsStreams,
-			Mime:    cs.params.MimeType,
-		})
+		if len(analyticsStreams) != 0 {
+			cs.onStatsUpdate(cs, &livekit.AnalyticsStat{
+				Score:   score,
+				Streams: analyticsStreams,
+				Mime:    cs.codecMimeType.Load().(mime.MimeType).String(),
+			})
+		}
 	}
 }
 
@@ -387,10 +398,10 @@ func (cs *ConnectionStats) updateStatsWorker() {
 // For video:
 //
 //	o No in-built codec repair available, hence same for all codecs
-func getPacketLossWeight(mimeType string, isFecEnabled bool) float64 {
+func getPacketLossWeight(mimeType mime.MimeType, isFecEnabled bool) float64 {
 	var plw float64
 	switch {
-	case strings.EqualFold(mimeType, webrtc.MimeTypeOpus):
+	case mimeType == mime.MimeTypeOpus:
 		// 2.5%: fall to GOOD, 7.5%: fall to POOR
 		plw = 8.0
 		if isFecEnabled {
@@ -398,7 +409,7 @@ func getPacketLossWeight(mimeType string, isFecEnabled bool) float64 {
 			plw /= 1.5
 		}
 
-	case strings.EqualFold(mimeType, "audio/red"):
+	case mimeType == mime.MimeTypeRED:
 		// 5%: fall to GOOD, 15.0%: fall to POOR
 		plw = 4.0
 		if isFecEnabled {
@@ -406,7 +417,7 @@ func getPacketLossWeight(mimeType string, isFecEnabled bool) float64 {
 			plw /= 1.5
 		}
 
-	case strings.HasPrefix(strings.ToLower(mimeType), "video/"):
+	case mime.IsMimeTypeVideo(mimeType):
 		// 2%: fall to GOOD, 6%: fall to POOR
 		plw = 10.0
 	}
@@ -414,22 +425,59 @@ func getPacketLossWeight(mimeType string, isFecEnabled bool) float64 {
 	return plw
 }
 
-func toAggregateDeltaInfo(streams map[uint32]*buffer.StreamStatsWithLayers) *buffer.RTPDeltaInfo {
-	deltaInfoList := make([]*buffer.RTPDeltaInfo, 0, len(streams))
+func toAggregateDeltaInfo(streams map[uint32]*buffer.StreamStatsWithLayers, useRemoteView bool) *rtpstats.RTPDeltaInfo {
+	deltaInfoList := make([]*rtpstats.RTPDeltaInfo, 0, len(streams))
 	for _, s := range streams {
-		deltaInfoList = append(deltaInfoList, s.RTPStats)
+		if useRemoteView {
+			if s.RTPStatsRemoteView != nil {
+				// discount jitter from publisher side + internal processing while reporting downstream jitter
+				if s.RTPStats != nil {
+					s.RTPStatsRemoteView.JitterMax -= s.RTPStats.JitterMax
+					if s.RTPStatsRemoteView.JitterMax < 0.0 {
+						s.RTPStatsRemoteView.JitterMax = 0.0
+					}
+				}
+				deltaInfoList = append(deltaInfoList, s.RTPStatsRemoteView)
+			}
+		} else {
+			if s.RTPStats != nil {
+				deltaInfoList = append(deltaInfoList, s.RTPStats)
+			}
+		}
 	}
-	return buffer.AggregateRTPDeltaInfo(deltaInfoList)
+	return rtpstats.AggregateRTPDeltaInfo(deltaInfoList)
 }
 
-func toAnalyticsStream(ssrc uint32, deltaStats *buffer.RTPDeltaInfo) *livekit.AnalyticsStream {
-	// discount the feed side loss when reporting forwarded track stats
-	packetsLost := deltaStats.PacketsLost
-	if deltaStats.PacketsMissing > packetsLost {
-		packetsLost = 0
-	} else {
-		packetsLost -= deltaStats.PacketsMissing
+func toAnalyticsStream(
+	ssrc uint32,
+	deltaStats *rtpstats.RTPDeltaInfo,
+	deltaStatsRemoteView *rtpstats.RTPDeltaInfo,
+	isSender bool,
+) *livekit.AnalyticsStream {
+	if deltaStats == nil {
+		return nil
 	}
+
+	// discount the feed side loss when reporting forwarded track stats,
+	// discount jitter from publisher side + internal processing while reporting downstream jitter
+	packetsLost := deltaStats.PacketsLost
+	rtt := deltaStats.RttMax
+	maxJitter := deltaStats.JitterMax
+	if deltaStatsRemoteView != nil {
+		packetsLost = deltaStatsRemoteView.PacketsLost
+		if deltaStatsRemoteView.PacketsMissing > packetsLost {
+			packetsLost = 0
+		} else {
+			packetsLost -= deltaStatsRemoteView.PacketsMissing
+		}
+
+		rtt = deltaStatsRemoteView.RttMax
+		maxJitter = deltaStatsRemoteView.JitterMax
+	} else if isSender {
+		rtt = 0
+		maxJitter = 0
+	}
+
 	return &livekit.AnalyticsStream{
 		StartTime:         timestamppb.New(deltaStats.StartTime),
 		EndTime:           timestamppb.New(deltaStats.EndTime),
@@ -441,16 +489,21 @@ func toAnalyticsStream(ssrc uint32, deltaStats *buffer.RTPDeltaInfo) *livekit.An
 		PaddingPackets:    deltaStats.PacketsPadding,
 		PaddingBytes:      deltaStats.BytesPadding,
 		PacketsLost:       packetsLost,
+		PacketsOutOfOrder: deltaStats.PacketsOutOfOrder,
 		Frames:            deltaStats.Frames,
-		Rtt:               deltaStats.RttMax,
-		Jitter:            uint32(deltaStats.JitterMax),
+		Rtt:               rtt,
+		Jitter:            uint32(maxJitter),
 		Nacks:             deltaStats.Nacks,
 		Plis:              deltaStats.Plis,
 		Firs:              deltaStats.Firs,
 	}
 }
 
-func toAnalyticsVideoLayer(layer int32, layerStats *buffer.RTPDeltaInfo) *livekit.AnalyticsVideoLayer {
+func toAnalyticsVideoLayer(layer int32, layerStats *rtpstats.RTPDeltaInfo) *livekit.AnalyticsVideoLayer {
+	if layerStats == nil {
+		return nil
+	}
+
 	avl := &livekit.AnalyticsVideoLayer{
 		Layer:   layer,
 		Packets: layerStats.Packets + layerStats.PacketsDuplicate + layerStats.PacketsPadding,
