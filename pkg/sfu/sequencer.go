@@ -21,6 +21,7 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/sfu/utils"
 	"github.com/livekit/protocol/logger"
+	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -29,23 +30,11 @@ const (
 	maxAck               = 3
 )
 
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-
-	return 0
-}
-
-func itob(i int) bool {
-	return i != 0
-}
-
 type packetMeta struct {
-	// Original sequence number from stream.
-	// The original sequence number is used to find the original
+	// Original extended sequence number from stream.
+	// The original extended sequence number is used to find the original
 	// packet from publisher
-	sourceSeqNo uint16
+	sourceSeqNo uint64
 	// Modified sequence number after offset.
 	// This sequence number is used for the associated
 	// down track, is modified according the offsets, and
@@ -79,10 +68,38 @@ type packetMeta struct {
 	actBytes []byte
 }
 
+func (pm packetMeta) MarshalLogObject(e zapcore.ObjectEncoder) error {
+	e.AddUint64("sourceSeqNo", pm.sourceSeqNo)
+	e.AddUint16("targetSeqNo", pm.targetSeqNo)
+	e.AddInt8("layer", pm.layer)
+	e.AddUint8("nacked", pm.nacked)
+	e.AddUint8("numCodecBytesIn", pm.numCodecBytesIn)
+	if len(pm.codecBytesSlice) != 0 {
+		e.AddInt("codecBytesSlice", len(pm.codecBytesSlice))
+	} else {
+		e.AddUint8("numCodecBytesOut", pm.numCodecBytesOut)
+	}
+	if len(pm.ddBytesSlice) != 0 {
+		e.AddInt("ddBytesSlice", len(pm.ddBytesSlice))
+	} else {
+		e.AddUint8("ddBytesSize", pm.ddBytesSize)
+	}
+	if len(pm.actBytes) != 0 {
+		e.AddInt("actBytes", len(pm.actBytes))
+	}
+	return nil
+}
+
 type extPacketMeta struct {
 	packetMeta
 	extSequenceNumber uint64
 	extTimestamp      uint64
+}
+
+func (epm extPacketMeta) MarshalLogObject(e zapcore.ObjectEncoder) error {
+	e.AddObject("packetMeta", epm.packetMeta)
+	e.AddUint64("extSequenceNumber", epm.extSequenceNumber)
+	return nil
 }
 
 // Sequencer stores the packet sequence received by the down track
@@ -104,7 +121,7 @@ type sequencer struct {
 func newSequencer(size int, maybeSparse bool, logger logger.Logger) *sequencer {
 	s := &sequencer{
 		size:      size,
-		startTime: time.Now().UnixMilli(),
+		startTime: time.Now().UnixNano(),
 		meta:      make([]packetMeta, size),
 		rtt:       defaultRtt,
 		logger:    logger,
@@ -128,7 +145,7 @@ func (s *sequencer) setRTT(rtt uint32) {
 }
 
 func (s *sequencer) push(
-	packetTime time.Time,
+	packetTime int64,
 	extIncomingSN, extModifiedSN uint64,
 	extModifiedTS uint64,
 	marker bool,
@@ -199,7 +216,7 @@ func (s *sequencer) push(
 
 	slot := extModifiedSNAdjusted % uint64(s.size)
 	s.meta[slot] = packetMeta{
-		sourceSeqNo:     uint16(extIncomingSN),
+		sourceSeqNo:     extIncomingSN,
 		targetSeqNo:     uint16(extModifiedSN),
 		timestamp:       uint32(extModifiedTS),
 		marker:          marker,
@@ -257,20 +274,20 @@ func (s *sequencer) pushPadding(extStartSNInclusive uint64, extEndSNInclusive ui
 		}
 
 		// if exclusion range is before what has already been sequenced, invalidate exclusion range slots
-		for sn := extStartSNInclusive; sn != extEndSNInclusive+1; sn++ {
-			diff := int64(sn - s.extHighestSN)
+		for esn := extStartSNInclusive; esn != extEndSNInclusive+1; esn++ {
+			diff := int64(esn - s.extHighestSN)
 			if diff >= 0 || diff < -int64(s.size) {
 				// too old OR too new (too new should not happen, just be safe)
 				continue
 			}
 
-			snOffset, err := s.snRangeMap.GetValue(sn)
+			snOffset, err := s.snRangeMap.GetValue(esn)
 			if err != nil {
-				s.logger.Errorw("could not get sequence number offset", err, "sn", sn)
+				s.logger.Errorw("could not get sequence number offset", err, "sn", esn)
 				continue
 			}
 
-			slot := (sn - snOffset) % uint64(s.size)
+			slot := (esn - snOffset) % uint64(s.size)
 			s.invalidateSlot(int(slot))
 		}
 		return
@@ -296,7 +313,7 @@ func (s *sequencer) getExtPacketMetas(seqNo []uint16) []extPacketMeta {
 	snOffset := uint64(0)
 	var err error
 	extPacketMetas := make([]extPacketMeta, 0, len(seqNo))
-	refTime := s.getRefTime(time.Now())
+	refTime := s.getRefTime(time.Now().UnixNano())
 	highestSN := uint16(s.extHighestSN)
 	highestTS := uint32(s.extHighestTS)
 	for _, sn := range seqNo {
@@ -357,8 +374,54 @@ func (s *sequencer) getExtPacketMetas(seqNo []uint16) []extPacketMeta {
 	return extPacketMetas
 }
 
-func (s *sequencer) getRefTime(at time.Time) uint32 {
-	return uint32(at.UnixMilli() - s.startTime)
+func (s *sequencer) lookupExtPacketMeta(extSN uint64) *extPacketMeta {
+	s.Lock()
+	defer s.Unlock()
+
+	if !s.initialized {
+		return nil
+	}
+
+	snOffset := uint64(0)
+	var err error
+	if s.snRangeMap != nil {
+		snOffset, err = s.snRangeMap.GetValue(extSN)
+		if err != nil {
+			return nil
+		}
+	}
+
+	extSNAdjusted := extSN - snOffset
+	extHighestSNAdjusted := s.extHighestSN - s.snOffset
+	if extHighestSNAdjusted-extSNAdjusted >= uint64(s.size) {
+		// too old
+		return nil
+	}
+
+	slot := extSNAdjusted % uint64(s.size)
+	meta := &s.meta[slot]
+	if s.isInvalidSlot(int(slot)) {
+		// invalid slot access could happen if padding packets exclusion range could not be recorded
+		return nil
+	}
+
+	extTS := uint64(meta.timestamp) + (s.extHighestTS & 0xFFFF_FFFF_0000_0000)
+	if meta.timestamp > uint32(s.extHighestTS) {
+		extTS -= (1 << 32)
+	}
+	epm := extPacketMeta{
+		packetMeta:        *meta,
+		extSequenceNumber: extSN,
+		extTimestamp:      extTS,
+	}
+	epm.codecBytesSlice = append([]byte{}, meta.codecBytesSlice...)
+	epm.ddBytesSlice = append([]byte{}, meta.ddBytesSlice...)
+	epm.actBytes = append([]byte{}, meta.actBytes...)
+	return &epm
+}
+
+func (s *sequencer) getRefTime(at int64) uint32 {
+	return uint32((at - s.startTime) / 1e6)
 }
 
 func (s *sequencer) updateSNOffset() {

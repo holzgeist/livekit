@@ -19,8 +19,11 @@ import (
 	"encoding/json"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/atomic"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/livekit/livekit-server/pkg/utils"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -40,6 +43,37 @@ type MessageSink interface {
 	ConnectionID() livekit.ConnectionID
 }
 
+// ----------
+
+type NullMessageSink struct {
+	connID   livekit.ConnectionID
+	isClosed atomic.Bool
+}
+
+func NewNullMessageSink(connID livekit.ConnectionID) *NullMessageSink {
+	return &NullMessageSink{
+		connID: connID,
+	}
+}
+
+func (n *NullMessageSink) WriteMessage(_msg proto.Message) error {
+	return nil
+}
+
+func (n *NullMessageSink) IsClosed() bool {
+	return n.isClosed.Load()
+}
+
+func (n *NullMessageSink) Close() {
+	n.isClosed.Store(true)
+}
+
+func (n *NullMessageSink) ConnectionID() livekit.ConnectionID {
+	return n.connID
+}
+
+// ------------------------------------------------
+
 //counterfeiter:generate . MessageSource
 type MessageSource interface {
 	// ReadChan exposes a one way channel to make it easier to use with select
@@ -49,19 +83,40 @@ type MessageSource interface {
 	ConnectionID() livekit.ConnectionID
 }
 
-type ParticipantInit struct {
-	Identity             livekit.ParticipantIdentity
-	Name                 livekit.ParticipantName
-	Reconnect            bool
-	ReconnectReason      livekit.ReconnectReason
-	AutoSubscribe        bool
-	Client               *livekit.ClientInfo
-	Grants               *auth.ClaimGrants
-	Region               string
-	AdaptiveStream       bool
-	ID                   livekit.ParticipantID
-	SubscriberAllowPause *bool
+// ----------
+
+type NullMessageSource struct {
+	connID   livekit.ConnectionID
+	msgChan  chan proto.Message
+	isClosed atomic.Bool
 }
+
+func NewNullMessageSource(connID livekit.ConnectionID) *NullMessageSource {
+	return &NullMessageSource{
+		connID:  connID,
+		msgChan: make(chan proto.Message, 0),
+	}
+}
+
+func (n *NullMessageSource) ReadChan() <-chan proto.Message {
+	return n.msgChan
+}
+
+func (n *NullMessageSource) IsClosed() bool {
+	return n.isClosed.Load()
+}
+
+func (n *NullMessageSource) Close() {
+	if !n.isClosed.Swap(true) {
+		close(n.msgChan)
+	}
+}
+
+func (n *NullMessageSource) ConnectionID() livekit.ConnectionID {
+	return n.connID
+}
+
+// ------------------------------------------------
 
 // Router allows multiple nodes to coordinate the participant session
 //
@@ -95,12 +150,20 @@ type StartParticipantSignalResults struct {
 }
 
 type MessageRouter interface {
+	// CreateRoom starts an rtc room
+	CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (res *livekit.Room, err error)
 	// StartParticipantSignal participant signal connection is ready to start
 	StartParticipantSignal(ctx context.Context, roomName livekit.RoomName, pi ParticipantInit) (res StartParticipantSignalResults, err error)
 }
 
-func CreateRouter(rc redis.UniversalClient, node LocalNode, signalClient SignalClient, kps rpc.KeepalivePubSub) Router {
-	lr := NewLocalRouter(node, signalClient)
+func CreateRouter(
+	rc redis.UniversalClient,
+	node LocalNode,
+	signalClient SignalClient,
+	roomManagerClient RoomManagerClient,
+	kps rpc.KeepalivePubSub,
+) Router {
+	lr := NewLocalRouter(node, signalClient, roomManagerClient)
 
 	if rc != nil {
 		return NewRedisRouter(lr, rc, kps)
@@ -109,6 +172,52 @@ func CreateRouter(rc redis.UniversalClient, node LocalNode, signalClient SignalC
 	// local routing and store
 	logger.Infow("using single-node routing")
 	return lr
+}
+
+// ------------------------------------------------
+
+type ParticipantInit struct {
+	Identity             livekit.ParticipantIdentity
+	Name                 livekit.ParticipantName
+	Reconnect            bool
+	ReconnectReason      livekit.ReconnectReason
+	AutoSubscribe        bool
+	Client               *livekit.ClientInfo
+	Grants               *auth.ClaimGrants
+	Region               string
+	AdaptiveStream       bool
+	ID                   livekit.ParticipantID
+	SubscriberAllowPause *bool
+	DisableICELite       bool
+	CreateRoom           *livekit.CreateRoomRequest
+}
+
+func (pi *ParticipantInit) MarshalLogObject(e zapcore.ObjectEncoder) error {
+	if pi == nil {
+		return nil
+	}
+
+	logBoolPtr := func(prop string, val *bool) {
+		if val == nil {
+			e.AddString(prop, "not-set")
+		} else {
+			e.AddBool(prop, *val)
+		}
+	}
+
+	e.AddString("Identity", string(pi.Identity))
+	logBoolPtr("Reconnect", &pi.Reconnect)
+	e.AddString("ReconnectReason", pi.ReconnectReason.String())
+	logBoolPtr("AutoSubscribe", &pi.AutoSubscribe)
+	e.AddObject("Client", logger.Proto(utils.ClientInfoWithoutAddress(pi.Client)))
+	e.AddObject("Grants", pi.Grants)
+	e.AddString("Region", pi.Region)
+	logBoolPtr("AdaptiveStream", &pi.AdaptiveStream)
+	e.AddString("ID", string(pi.ID))
+	logBoolPtr("SubscriberAllowPause", pi.SubscriberAllowPause)
+	logBoolPtr("DisableICELite", &pi.DisableICELite)
+	e.AddObject("CreateRoom", logger.Proto(pi.CreateRoom))
+	return nil
 }
 
 func (pi *ParticipantInit) ToStartSession(roomName livekit.RoomName, connectionID livekit.ConnectionID) (*livekit.StartSession, error) {
@@ -130,6 +239,8 @@ func (pi *ParticipantInit) ToStartSession(roomName livekit.RoomName, connectionI
 		GrantsJson:      string(claims),
 		AdaptiveStream:  pi.AdaptiveStream,
 		ParticipantId:   string(pi.ID),
+		DisableIceLite:  pi.DisableICELite,
+		CreateRoom:      pi.CreateRoom,
 	}
 	if pi.SubscriberAllowPause != nil {
 		subscriberAllowPause := *pi.SubscriberAllowPause
@@ -156,10 +267,19 @@ func ParticipantInitFromStartSession(ss *livekit.StartSession, region string) (*
 		Region:          region,
 		AdaptiveStream:  ss.AdaptiveStream,
 		ID:              livekit.ParticipantID(ss.ParticipantId),
+		DisableICELite:  ss.DisableIceLite,
+		CreateRoom:      ss.CreateRoom,
 	}
 	if ss.SubscriberAllowPause != nil {
 		subscriberAllowPause := *ss.SubscriberAllowPause
 		pi.SubscriberAllowPause = &subscriberAllowPause
+	}
+
+	// TODO: clean up after 1.7 eol
+	if pi.CreateRoom == nil {
+		pi.CreateRoom = &livekit.CreateRoomRequest{
+			Name: ss.RoomName,
+		}
 	}
 
 	return pi, nil

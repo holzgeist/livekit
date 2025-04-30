@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/utils"
 	"github.com/livekit/protocol/webhook"
 
 	"github.com/livekit/livekit-server/version"
@@ -30,6 +31,7 @@ import (
 	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/rtc/types/typesfakes"
+	"github.com/livekit/livekit-server/pkg/sfu"
 	"github.com/livekit/livekit-server/pkg/sfu/audio"
 	"github.com/livekit/livekit-server/pkg/telemetry"
 	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
@@ -284,7 +286,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "last version is enqueued",
 			pi:       subscriber1v2,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)}, // clone the existing value since it can be modified when setting to disconnected
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v1)}, // clone the existing value since it can be modified when setting to disconnected
 			validate: func(t *testing.T, rm *Room, _ []*participantUpdate) {
 				queued := rm.batchedUpdates[livekit.ParticipantIdentity(identity)]
 				require.NotNil(t, queued)
@@ -294,7 +296,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:      "latest version when immediate",
 			pi:        subscriber1v2,
-			existing:  &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)},
+			existing:  &participantUpdate{pi: utils.CloneProto(subscriber1v1)},
 			immediate: true,
 			expected:  []*participantUpdate{{pi: subscriber1v2}},
 			validate: func(t *testing.T, rm *Room, _ []*participantUpdate) {
@@ -305,7 +307,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "out of order updates are rejected",
 			pi:       subscriber1v1,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v2).(*livekit.ParticipantInfo)},
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v2)},
 			validate: func(t *testing.T, rm *Room, updates []*participantUpdate) {
 				queued := rm.batchedUpdates[livekit.ParticipantIdentity(identity)]
 				requirePIEquals(t, subscriber1v2, queued.pi)
@@ -315,7 +317,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 			name:        "sid change is broadcasted immediately with synthsized disconnect",
 			pi:          publisher2,
 			closeReason: types.ParticipantCloseReasonServiceRequestRemoveParticipant, // just to test if update contain the close reason
-			existing:    &participantUpdate{pi: proto.Clone(subscriber1v2).(*livekit.ParticipantInfo), closeReason: types.ParticipantCloseReasonStale},
+			existing:    &participantUpdate{pi: utils.CloneProto(subscriber1v2), closeReason: types.ParticipantCloseReasonStale},
 			expected: []*participantUpdate{
 				{
 					pi: &livekit.ParticipantInfo{
@@ -333,7 +335,7 @@ func TestPushAndDequeueUpdates(t *testing.T) {
 		{
 			name:     "when switching to publisher, queue is cleared",
 			pi:       publisher1v2,
-			existing: &participantUpdate{pi: proto.Clone(subscriber1v1).(*livekit.ParticipantInfo)},
+			existing: &participantUpdate{pi: utils.CloneProto(subscriber1v1)},
 			expected: []*participantUpdate{{pi: publisher1v2}},
 			validate: func(t *testing.T, rm *Room, updates []*participantUpdate) {
 				require.Empty(t, rm.batchedUpdates)
@@ -622,7 +624,7 @@ func TestDataChannel(t *testing.T) {
 				}
 				setSource(mode, packet, p)
 
-				packetExp := proto.Clone(packet).(*livekit.DataPacket)
+				packetExp := utils.CloneProto(packet)
 				if mode != legacySID {
 					packetExp.ParticipantIdentity = string(p.Identity())
 					packetExp.GetUser().ParticipantIdentity = string(p.Identity())
@@ -667,7 +669,7 @@ func TestDataChannel(t *testing.T) {
 				setSource(mode, packet, p)
 				setDest(mode, packet, p1)
 
-				packetExp := proto.Clone(packet).(*livekit.DataPacket)
+				packetExp := utils.CloneProto(packet)
 				if mode != legacySID {
 					packetExp.ParticipantIdentity = string(p.Identity())
 					packetExp.GetUser().ParticipantIdentity = string(p.Identity())
@@ -801,9 +803,11 @@ func newRoomWithParticipants(t *testing.T, opts testRoomOpts) *Room {
 			EmptyTimeout:     5 * 60,
 			DepartureTimeout: 1,
 		},
-		&config.AudioConfig{
-			UpdateInterval:  audioUpdateInterval,
-			SmoothIntervals: opts.audioSmoothIntervals,
+		&sfu.AudioConfig{
+			AudioLevelConfig: audio.AudioLevelConfig{
+				UpdateInterval:  audioUpdateInterval,
+				SmoothIntervals: opts.audioSmoothIntervals,
+			},
 		},
 		&livekit.ServerInfo{
 			Edition:  livekit.ServerInfo_Standard,
@@ -813,7 +817,7 @@ func newRoomWithParticipants(t *testing.T, opts testRoomOpts) *Room {
 			Region:   "testregion",
 		},
 		telemetry.NewTelemetryService(webhook.NewDefaultNotifier("", "", nil), &telemetryfakes.FakeAnalyticsService{}),
-		nil, nil,
+		nil, nil, nil,
 	)
 	for i := 0; i < opts.num+opts.numHidden; i++ {
 		identity := livekit.ParticipantIdentity(fmt.Sprintf("p%d", i))

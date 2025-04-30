@@ -35,7 +35,6 @@ func TestAgents(t *testing.T) {
 	_, finish := setupSingleNodeTest("TestAgents")
 	defer finish()
 
-
 	ac1, err := newAgentClient(agentToken(), defaultServerPort)
 	require.NoError(t, err)
 	ac2, err := newAgentClient(agentToken(), defaultServerPort)
@@ -44,17 +43,25 @@ func TestAgents(t *testing.T) {
 	require.NoError(t, err)
 	ac4, err := newAgentClient(agentToken(), defaultServerPort)
 	require.NoError(t, err)
+	ac5, err := newAgentClient(agentToken(), defaultServerPort)
+	require.NoError(t, err)
+	ac6, err := newAgentClient(agentToken(), defaultServerPort)
+	require.NoError(t, err)
 	defer ac1.close()
 	defer ac2.close()
 	defer ac3.close()
 	defer ac4.close()
-	ac1.Run(livekit.JobType_JT_ROOM, "namespace")
-	ac2.Run(livekit.JobType_JT_ROOM, "namespace")
-	ac3.Run(livekit.JobType_JT_PUBLISHER, "namespace")
-	ac4.Run(livekit.JobType_JT_PUBLISHER, "namespace")
+	defer ac5.close()
+	defer ac6.close()
+	ac1.Run(livekit.JobType_JT_ROOM, "default")
+	ac2.Run(livekit.JobType_JT_ROOM, "default")
+	ac3.Run(livekit.JobType_JT_PUBLISHER, "default")
+	ac4.Run(livekit.JobType_JT_PUBLISHER, "default")
+	ac5.Run(livekit.JobType_JT_PARTICIPANT, "default")
+	ac6.Run(livekit.JobType_JT_PARTICIPANT, "default")
 
 	testutils.WithTimeout(t, func() string {
-		if ac1.registered.Load() != 1 || ac2.registered.Load() != 1 || ac3.registered.Load() != 1 || ac4.registered.Load() != 1 {
+		if ac1.registered.Load() != 1 || ac2.registered.Load() != 1 || ac3.registered.Load() != 1 || ac4.registered.Load() != 1 || ac5.registered.Load() != 1 || ac6.registered.Load() != 1 {
 			return "worker not registered"
 		}
 
@@ -78,12 +85,16 @@ func TestAgents(t *testing.T) {
 			return "room job not assigned"
 		}
 
-		if ac3.participantJobs.Load()+ac4.participantJobs.Load() != 1 {
-			return fmt.Sprintf("participant jobs not assigned, ac3: %d, ac4: %d", ac3.participantJobs.Load(), ac4.participantJobs.Load())
+		if ac3.publisherJobs.Load()+ac4.publisherJobs.Load() != 1 {
+			return fmt.Sprintf("publisher jobs not assigned, ac3: %d, ac4: %d", ac3.publisherJobs.Load(), ac4.publisherJobs.Load())
+		}
+
+		if ac5.participantJobs.Load()+ac6.participantJobs.Load() != 2 {
+			return fmt.Sprintf("participant jobs not assigned, ac5: %d, ac6: %d", ac5.participantJobs.Load(), ac6.participantJobs.Load())
 		}
 
 		return ""
-	}, 6 * time.Second)
+	}, 6*time.Second)
 
 	// publish 2 tracks
 	t3, err := c2.AddStaticTrack("audio/opus", "audio", "micro")
@@ -98,8 +109,12 @@ func TestAgents(t *testing.T) {
 			return "room job must be assigned 1 time"
 		}
 
-		if ac3.participantJobs.Load()+ac4.participantJobs.Load() != 2 {
+		if ac3.publisherJobs.Load()+ac4.publisherJobs.Load() != 2 {
 			return "2 publisher jobs must assigned"
+		}
+
+		if ac5.participantJobs.Load()+ac6.participantJobs.Load() != 2 {
+			return "2 participant jobs must assigned"
 		}
 
 		return ""
@@ -116,8 +131,19 @@ func TestAgentNamespaces(t *testing.T) {
 	require.NoError(t, err)
 	defer ac1.close()
 	defer ac2.close()
-	ac1.Run(livekit.JobType_JT_ROOM, "namespace")
+	ac1.Run(livekit.JobType_JT_ROOM, "namespace1")
 	ac2.Run(livekit.JobType_JT_ROOM, "namespace2")
+
+	_, err = roomClient.CreateRoom(contextWithToken(createRoomToken()), &livekit.CreateRoomRequest{
+		Name: testRoom,
+		Agents: []*livekit.RoomAgentDispatch{
+			{},
+			{
+				AgentName: "ag",
+			},
+		},
+	})
+	require.NoError(t, err)
 
 	testutils.WithTimeout(t, func() string {
 		if ac1.registered.Load() != 1 || ac2.registered.Load() != 1 {
@@ -137,7 +163,7 @@ func TestAgentNamespaces(t *testing.T) {
 		job1 := <-ac1.requestedJobs
 		job2 := <-ac2.requestedJobs
 
-		if job1.Namespace != "namespace" {
+		if job1.Namespace != "namespace1" {
 			return "namespace is not 'namespace'"
 		}
 
@@ -161,10 +187,11 @@ func TestAgentMultiNode(t *testing.T) {
 	ac1, err := newAgentClient(agentToken(), defaultServerPort)
 	require.NoError(t, err)
 	ac2, err := newAgentClient(agentToken(), defaultServerPort)
+	require.NoError(t, err)
 	defer ac1.close()
 	defer ac2.close()
-	ac1.Run(livekit.JobType_JT_ROOM, "namespace")
-	ac2.Run(livekit.JobType_JT_PUBLISHER, "namespace")
+	ac1.Run(livekit.JobType_JT_ROOM, "default")
+	ac2.Run(livekit.JobType_JT_PUBLISHER, "default")
 
 	testutils.WithTimeout(t, func() string {
 		if ac1.registered.Load() != 1 || ac2.registered.Load() != 1 {
@@ -187,7 +214,7 @@ func TestAgentMultiNode(t *testing.T) {
 			return "room job not assigned"
 		}
 
-		if ac2.participantJobs.Load() != 1 {
+		if ac2.publisherJobs.Load() != 1 {
 			return "participant job not assigned"
 		}
 

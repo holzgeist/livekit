@@ -58,6 +58,10 @@ func (c ClientInfo) FireTrackByRTPPacket() bool {
 	return c.isGo()
 }
 
+func (c ClientInfo) SupportsCodecChange() bool {
+	return c.ClientInfo != nil && c.ClientInfo.Sdk != livekit.ClientInfo_GO && c.ClientInfo.Sdk != livekit.ClientInfo_UNKNOWN
+}
+
 func (c ClientInfo) CanHandleReconnectResponse() bool {
 	if c.Sdk == livekit.ClientInfo_JS {
 		// JS handles Reconnect explicitly in 1.6.3, prior to 1.6.4 it could not handle unknown responses
@@ -90,6 +94,20 @@ func (c ClientInfo) SupportsChangeRTPSenderEncodingActive() bool {
 
 func (c ClientInfo) ComplyWithCodecOrderInSDPAnswer() bool {
 	return !((c.isLinux() || c.isAndroid()) && c.isFirefox())
+}
+
+// Rust SDK can't decode unknown signal message (TrackSubscribed and ErrorResponse)
+func (c ClientInfo) SupportTrackSubscribedEvent() bool {
+	return !(c.ClientInfo.GetSdk() == livekit.ClientInfo_RUST && c.ClientInfo.GetProtocol() < 10)
+}
+
+func (c ClientInfo) SupportErrorResponse() bool {
+	return c.SupportTrackSubscribedEvent()
+}
+
+func (c ClientInfo) SupportSctpZeroChecksum() bool {
+	return !(c.ClientInfo.GetSdk() == livekit.ClientInfo_UNKNOWN ||
+		(c.isGo() && c.compareVersion("2.4.0") < 0))
 }
 
 // compareVersion compares a semver against the current client SDK version

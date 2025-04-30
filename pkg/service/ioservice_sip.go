@@ -17,6 +17,10 @@ package service
 import (
 	"context"
 	"errors"
+	"net/netip"
+
+	"github.com/dennwc/iters"
+	"github.com/twitchtv/twirp"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -26,30 +30,70 @@ import (
 
 // matchSIPTrunk finds a SIP Trunk definition matching the request.
 // Returns nil if no rules matched or an error if there are conflicting definitions.
-func (s *IOInfoService) matchSIPTrunk(ctx context.Context, calling, called string) (*livekit.SIPInboundTrunkInfo, error) {
-	trunks, err := s.ss.ListSIPInboundTrunk(ctx)
-	if err != nil {
-		return nil, err
+func (s *IOInfoService) matchSIPTrunk(ctx context.Context, trunkID, calling, called string, srcIP netip.Addr) (*livekit.SIPInboundTrunkInfo, error) {
+	if s.ss == nil {
+		return nil, ErrSIPNotConnected
 	}
-	return sip.MatchTrunk(trunks, "", calling, called)
+	if trunkID != "" {
+		// This is a best-effort optimization. Fallthrough to listing trunks if it doesn't work.
+		if tr, err := s.ss.LoadSIPInboundTrunk(ctx, trunkID); err == nil {
+			tr, err = sip.MatchTrunkIter(iters.Slice([]*livekit.SIPInboundTrunkInfo{tr}), srcIP, calling, called)
+			if err == nil {
+				return tr, nil
+			}
+		}
+	}
+	it := s.SelectSIPInboundTrunk(ctx, called)
+	return sip.MatchTrunkIter(it, srcIP, calling, called)
+}
+
+func (s *IOInfoService) SelectSIPInboundTrunk(ctx context.Context, called string) iters.Iter[*livekit.SIPInboundTrunkInfo] {
+	it := livekit.ListPageIter(s.ss.ListSIPInboundTrunk, &livekit.ListSIPInboundTrunkRequest{
+		Numbers: []string{called},
+	})
+	return iters.PagesAsIter(ctx, it)
 }
 
 // matchSIPDispatchRule finds the best dispatch rule matching the request parameters. Returns an error if no rule matched.
 // Trunk parameter can be nil, in which case only wildcard dispatch rules will be effective (ones without Trunk IDs).
 func (s *IOInfoService) matchSIPDispatchRule(ctx context.Context, trunk *livekit.SIPInboundTrunkInfo, req *rpc.EvaluateSIPDispatchRulesRequest) (*livekit.SIPDispatchRuleInfo, error) {
+	if s.ss == nil {
+		return nil, ErrSIPNotConnected
+	}
+	var trunkID string
+	if trunk != nil {
+		trunkID = trunk.SipTrunkId
+	}
 	// Trunk can still be nil here in case none matched or were defined.
 	// This is still fine, but only in case we'll match exactly one wildcard dispatch rule.
-	rules, err := s.ss.ListSIPDispatchRule(ctx)
-	if err != nil {
-		return nil, err
+	it := s.SelectSIPDispatchRule(ctx, trunkID)
+	return sip.MatchDispatchRuleIter(trunk, it, req)
+}
+
+func (s *IOInfoService) SelectSIPDispatchRule(ctx context.Context, trunkID string) iters.Iter[*livekit.SIPDispatchRuleInfo] {
+	var trunkIDs []string
+	if trunkID != "" {
+		trunkIDs = []string{trunkID}
 	}
-	return sip.MatchDispatchRule(trunk, rules, req)
+	it := livekit.ListPageIter(s.ss.ListSIPDispatchRule, &livekit.ListSIPDispatchRuleRequest{
+		TrunkIds: trunkIDs,
+	})
+	return iters.PagesAsIter(ctx, it)
 }
 
 func (s *IOInfoService) EvaluateSIPDispatchRules(ctx context.Context, req *rpc.EvaluateSIPDispatchRulesRequest) (*rpc.EvaluateSIPDispatchRulesResponse, error) {
 	log := logger.GetLogger()
-	log = log.WithValues("toUser", req.CalledNumber, "fromUser", req.CallingNumber)
-	trunk, err := s.matchSIPTrunk(ctx, req.CallingNumber, req.CalledNumber)
+	log = log.WithValues("toUser", req.CalledNumber, "fromUser", req.CallingNumber, "src", req.SrcAddress)
+	if req.SrcAddress == "" {
+		log.Warnw("source address is not set", nil)
+		// TODO: return error in the next release
+	}
+	srcIP, err := netip.ParseAddr(req.SrcAddress)
+	if req.SrcAddress != "" && err != nil {
+		log.Errorw("cannot parse source IP", err)
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
+	}
+	trunk, err := s.matchSIPTrunk(ctx, req.SipTrunkId, req.CallingNumber, req.CalledNumber, srcIP)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +118,7 @@ func (s *IOInfoService) EvaluateSIPDispatchRules(ctx context.Context, req *rpc.E
 		return nil, err
 	}
 	log.Debugw("SIP dispatch rule matched", "sipRule", best.SipDispatchRuleId)
-	resp, err := sip.EvaluateDispatchRule(trunkID, best, req)
+	resp, err := sip.EvaluateDispatchRule("", trunk, best, req)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +128,17 @@ func (s *IOInfoService) EvaluateSIPDispatchRules(ctx context.Context, req *rpc.E
 
 func (s *IOInfoService) GetSIPTrunkAuthentication(ctx context.Context, req *rpc.GetSIPTrunkAuthenticationRequest) (*rpc.GetSIPTrunkAuthenticationResponse, error) {
 	log := logger.GetLogger()
-	log = log.WithValues("toUser", req.To, "fromUser", req.From)
-	trunk, err := s.matchSIPTrunk(ctx, req.From, req.To)
+	log = log.WithValues("toUser", req.To, "fromUser", req.From, "src", req.SrcAddress)
+	if req.SrcAddress == "" {
+		log.Warnw("source address is not set", nil)
+		// TODO: return error in the next release
+	}
+	srcIP, err := netip.ParseAddr(req.SrcAddress)
+	if req.SrcAddress != "" && err != nil {
+		log.Errorw("cannot parse source IP", err)
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
+	}
+	trunk, err := s.matchSIPTrunk(ctx, "", req.From, req.To, srcIP)
 	if err != nil {
 		return nil, err
 	}

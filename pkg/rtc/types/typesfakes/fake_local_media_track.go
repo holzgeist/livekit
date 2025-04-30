@@ -6,6 +6,7 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/sfu"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/protocol/livekit"
 )
 
@@ -94,12 +95,12 @@ type FakeLocalMediaTrack struct {
 	getQualityForDimensionReturnsOnCall map[int]struct {
 		result1 livekit.VideoQuality
 	}
-	GetTemporalLayerForSpatialFpsStub        func(int32, uint32, string) int32
+	GetTemporalLayerForSpatialFpsStub        func(int32, uint32, mime.MimeType) int32
 	getTemporalLayerForSpatialFpsMutex       sync.RWMutex
 	getTemporalLayerForSpatialFpsArgsForCall []struct {
 		arg1 int32
 		arg2 uint32
-		arg3 string
+		arg3 mime.MimeType
 	}
 	getTemporalLayerForSpatialFpsReturns struct {
 		result1 int32
@@ -220,6 +221,10 @@ type FakeLocalMediaTrack struct {
 	notifySubscriberNodeMediaLossArgsForCall []struct {
 		arg1 livekit.NodeID
 		arg2 uint8
+	}
+	OnTrackSubscribedStub        func()
+	onTrackSubscribedMutex       sync.RWMutex
+	onTrackSubscribedArgsForCall []struct {
 	}
 	PublisherIDStub        func() livekit.ParticipantID
 	publisherIDMutex       sync.RWMutex
@@ -791,13 +796,13 @@ func (fake *FakeLocalMediaTrack) GetQualityForDimensionReturnsOnCall(i int, resu
 	}{result1}
 }
 
-func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFps(arg1 int32, arg2 uint32, arg3 string) int32 {
+func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFps(arg1 int32, arg2 uint32, arg3 mime.MimeType) int32 {
 	fake.getTemporalLayerForSpatialFpsMutex.Lock()
 	ret, specificReturn := fake.getTemporalLayerForSpatialFpsReturnsOnCall[len(fake.getTemporalLayerForSpatialFpsArgsForCall)]
 	fake.getTemporalLayerForSpatialFpsArgsForCall = append(fake.getTemporalLayerForSpatialFpsArgsForCall, struct {
 		arg1 int32
 		arg2 uint32
-		arg3 string
+		arg3 mime.MimeType
 	}{arg1, arg2, arg3})
 	stub := fake.GetTemporalLayerForSpatialFpsStub
 	fakeReturns := fake.getTemporalLayerForSpatialFpsReturns
@@ -818,13 +823,13 @@ func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFpsCallCount() int {
 	return len(fake.getTemporalLayerForSpatialFpsArgsForCall)
 }
 
-func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFpsCalls(stub func(int32, uint32, string) int32) {
+func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFpsCalls(stub func(int32, uint32, mime.MimeType) int32) {
 	fake.getTemporalLayerForSpatialFpsMutex.Lock()
 	defer fake.getTemporalLayerForSpatialFpsMutex.Unlock()
 	fake.GetTemporalLayerForSpatialFpsStub = stub
 }
 
-func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFpsArgsForCall(i int) (int32, uint32, string) {
+func (fake *FakeLocalMediaTrack) GetTemporalLayerForSpatialFpsArgsForCall(i int) (int32, uint32, mime.MimeType) {
 	fake.getTemporalLayerForSpatialFpsMutex.RLock()
 	defer fake.getTemporalLayerForSpatialFpsMutex.RUnlock()
 	argsForCall := fake.getTemporalLayerForSpatialFpsArgsForCall[i]
@@ -1469,6 +1474,30 @@ func (fake *FakeLocalMediaTrack) NotifySubscriberNodeMediaLossArgsForCall(i int)
 	defer fake.notifySubscriberNodeMediaLossMutex.RUnlock()
 	argsForCall := fake.notifySubscriberNodeMediaLossArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeLocalMediaTrack) OnTrackSubscribed() {
+	fake.onTrackSubscribedMutex.Lock()
+	fake.onTrackSubscribedArgsForCall = append(fake.onTrackSubscribedArgsForCall, struct {
+	}{})
+	stub := fake.OnTrackSubscribedStub
+	fake.recordInvocation("OnTrackSubscribed", []interface{}{})
+	fake.onTrackSubscribedMutex.Unlock()
+	if stub != nil {
+		fake.OnTrackSubscribedStub()
+	}
+}
+
+func (fake *FakeLocalMediaTrack) OnTrackSubscribedCallCount() int {
+	fake.onTrackSubscribedMutex.RLock()
+	defer fake.onTrackSubscribedMutex.RUnlock()
+	return len(fake.onTrackSubscribedArgsForCall)
+}
+
+func (fake *FakeLocalMediaTrack) OnTrackSubscribedCalls(stub func()) {
+	fake.onTrackSubscribedMutex.Lock()
+	defer fake.onTrackSubscribedMutex.Unlock()
+	fake.OnTrackSubscribedStub = stub
 }
 
 func (fake *FakeLocalMediaTrack) PublisherID() livekit.ParticipantID {
@@ -2225,6 +2254,8 @@ func (fake *FakeLocalMediaTrack) Invocations() map[string][][]interface{} {
 	defer fake.notifySubscriberNodeMaxQualityMutex.RUnlock()
 	fake.notifySubscriberNodeMediaLossMutex.RLock()
 	defer fake.notifySubscriberNodeMediaLossMutex.RUnlock()
+	fake.onTrackSubscribedMutex.RLock()
+	defer fake.onTrackSubscribedMutex.RUnlock()
 	fake.publisherIDMutex.RLock()
 	defer fake.publisherIDMutex.RUnlock()
 	fake.publisherIdentityMutex.RLock()

@@ -19,14 +19,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livekit/livekit-server/pkg/config"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/utils"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/webhook"
 )
 
-//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 . TelemetryService
+//go:generate go run github.com/maxbrunsfeld/counterfeiter/v6 -generate
+
+//counterfeiter:generate . TelemetryService
 type TelemetryService interface {
 	// TrackStats is called periodically for each track in both directions (published/subscribed)
 	TrackStats(key StatsKey, stat *livekit.AnalyticsStat)
@@ -63,9 +65,9 @@ type TelemetryService interface {
 	// TrackPublishedUpdate - track metadata has been updated
 	TrackPublishedUpdate(ctx context.Context, participantID livekit.ParticipantID, track *livekit.TrackInfo)
 	// TrackMaxSubscribedVideoQuality - publisher is notified of the max quality subscribers desire
-	TrackMaxSubscribedVideoQuality(ctx context.Context, participantID livekit.ParticipantID, track *livekit.TrackInfo, mime string, maxQuality livekit.VideoQuality)
-	TrackPublishRTPStats(ctx context.Context, participantID livekit.ParticipantID, trackID livekit.TrackID, mimeType string, layer int, stats *livekit.RTPStats)
-	TrackSubscribeRTPStats(ctx context.Context, participantID livekit.ParticipantID, trackID livekit.TrackID, mimeType string, stats *livekit.RTPStats)
+	TrackMaxSubscribedVideoQuality(ctx context.Context, participantID livekit.ParticipantID, track *livekit.TrackInfo, mime mime.MimeType, maxQuality livekit.VideoQuality)
+	TrackPublishRTPStats(ctx context.Context, participantID livekit.ParticipantID, trackID livekit.TrackID, mimeType mime.MimeType, layer int, stats *livekit.RTPStats)
+	TrackSubscribeRTPStats(ctx context.Context, participantID livekit.ParticipantID, trackID livekit.TrackID, mimeType mime.MimeType, stats *livekit.RTPStats)
 	EgressStarted(ctx context.Context, info *livekit.EgressInfo)
 	EgressUpdated(ctx context.Context, info *livekit.EgressInfo)
 	EgressEnded(ctx context.Context, info *livekit.EgressInfo)
@@ -75,6 +77,9 @@ type TelemetryService interface {
 	IngressUpdated(ctx context.Context, info *livekit.IngressInfo)
 	IngressEnded(ctx context.Context, info *livekit.IngressInfo)
 	LocalRoomState(ctx context.Context, info *livekit.AnalyticsNodeRooms)
+	Report(ctx context.Context, reportInfo *livekit.ReportInfo)
+	APICall(ctx context.Context, apiCallInfo *livekit.APICallInfo)
+	Webhook(ctx context.Context, webhookInfo *livekit.WebhookInfo)
 
 	// helpers
 	AnalyticsService
@@ -85,6 +90,9 @@ type TelemetryService interface {
 const (
 	workerCleanupWait = 3 * time.Minute
 	jobsQueueMinSize  = 2048
+
+	telemetryStatsUpdateInterval         = time.Second * 30
+	telemetryNonMediaStatsUpdateInterval = time.Second * 30
 )
 
 type telemetryService struct {
@@ -103,8 +111,7 @@ type telemetryService struct {
 func NewTelemetryService(notifier webhook.QueuedNotifier, analytics AnalyticsService) TelemetryService {
 	t := &telemetryService{
 		AnalyticsService: analytics,
-
-		notifier: notifier,
+		notifier:         notifier,
 		jobsQueue: utils.NewOpsQueue(utils.OpsQueueParams{
 			Name:        "telemetry",
 			MinSize:     jobsQueueMinSize,
@@ -112,6 +119,11 @@ func NewTelemetryService(notifier webhook.QueuedNotifier, analytics AnalyticsSer
 			Logger:      logger.GetLogger(),
 		}),
 		workers: make(map[livekit.ParticipantID]*StatsWorker),
+	}
+	if t.notifier != nil {
+		t.notifier.RegisterProcessedHook(func(ctx context.Context, whi *livekit.WebhookInfo) {
+			t.Webhook(ctx, whi)
+		})
 	}
 
 	t.jobsQueue.Start()
@@ -160,7 +172,9 @@ func (t *telemetryService) FlushStats() {
 	if reap != nil {
 		t.workersMu.Lock()
 		for reap != nil {
-			delete(t.workers, reap.participantID)
+			if reap == t.workers[reap.participantID] {
+				delete(t.workers, reap.participantID)
+			}
 			reap = reap.next
 		}
 		t.workersMu.Unlock()
@@ -168,7 +182,7 @@ func (t *telemetryService) FlushStats() {
 }
 
 func (t *telemetryService) run() {
-	for range time.Tick(config.TelemetryStatsUpdateInterval) {
+	for range time.Tick(telemetryStatsUpdateInterval) {
 		t.FlushStats()
 	}
 }
@@ -195,11 +209,17 @@ func (t *telemetryService) getOrCreateWorker(
 	t.workersMu.Lock()
 	defer t.workersMu.Unlock()
 
-	if worker, ok := t.workers[participantID]; ok {
+	worker, ok := t.workers[participantID]
+	if ok && !worker.Closed() {
 		return worker, true
 	}
 
-	worker := newStatsWorker(
+	existingIsConnected := false
+	if ok {
+		existingIsConnected = worker.IsConnected()
+	}
+
+	worker = newStatsWorker(
 		ctx,
 		t,
 		roomID,
@@ -207,6 +227,9 @@ func (t *telemetryService) getOrCreateWorker(
 		participantID,
 		participantIdentity,
 	)
+	if existingIsConnected {
+		worker.SetConnected()
+	}
 
 	t.workers[participantID] = worker
 
