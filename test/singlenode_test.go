@@ -16,6 +16,8 @@ package test
 
 import (
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,9 +25,11 @@ import (
 	"time"
 
 	"github.com/pion/sdp/v3"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/stretchr/testify/require"
 	"github.com/thoas/go-funk"
+	"github.com/twitchtv/twirp"
+	"go.uber.org/atomic"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
@@ -33,6 +37,8 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/rtc"
+	"github.com/livekit/livekit-server/pkg/sfu/datachannel"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/testutils"
 	testclient "github.com/livekit/livekit-server/test/client"
 )
@@ -151,7 +157,7 @@ func TestSinglePublisher(t *testing.T) {
 	waitUntilConnected(t, c1, c2)
 
 	// publish a track and ensure clients receive it ok
-	t1, err := c1.AddStaticTrack("audio/opus", "audio", "webcamaudio")
+	t1, err := c1.AddStaticTrack("audio/OPUS", "audio", "webcamaudio")
 	require.NoError(t, err)
 	defer t1.Stop()
 	t2, err := c1.AddStaticTrack("video/vp8", "video", "webcamvideo")
@@ -275,7 +281,7 @@ func Test_RenegotiationWithDifferentCodecs(t *testing.T) {
 
 		tracks := c2.SubscribedTracks()[c1.ID()]
 		for _, t := range tracks {
-			if strings.EqualFold(t.Codec().MimeType, "video/vp8") {
+			if mime.IsMimeTypeStringVP8(t.Codec().MimeType) {
 				return ""
 
 			}
@@ -303,9 +309,9 @@ func Test_RenegotiationWithDifferentCodecs(t *testing.T) {
 		var vp8Found, h264Found bool
 		tracks := c2.SubscribedTracks()[c1.ID()]
 		for _, t := range tracks {
-			if strings.EqualFold(t.Codec().MimeType, "video/vp8") {
+			if mime.IsMimeTypeStringVP8(t.Codec().MimeType) {
 				vp8Found = true
-			} else if strings.EqualFold(t.Codec().MimeType, "video/h264") {
+			} else if mime.IsMimeTypeStringH264(t.Codec().MimeType) {
 				h264Found = true
 			}
 		}
@@ -330,6 +336,30 @@ func TestSingleNodeRoomList(t *testing.T) {
 	roomServiceListRoom(t)
 }
 
+func TestSingleNodeUpdateParticipant(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+		return
+	}
+	_, finish := setupSingleNodeTest("TestSingleNodeRoomList")
+	defer finish()
+
+	adminCtx := contextWithToken(adminRoomToken(testRoom))
+	t.Run("update nonexistent participant", func(t *testing.T) {
+		_, err := roomClient.UpdateParticipant(adminCtx, &livekit.UpdateParticipantRequest{
+			Room:     testRoom,
+			Identity: "nonexistent",
+			Permission: &livekit.ParticipantPermission{
+				CanPublish: true,
+			},
+		})
+		require.Error(t, err)
+		var twErr twirp.Error
+		require.True(t, errors.As(err, &twErr))
+		require.Equal(t, twirp.NotFound, twErr.Code())
+	})
+}
+
 // Ensure that CORS headers are returned
 func TestSingleNodeCORS(t *testing.T) {
 	if testing.Short() {
@@ -346,6 +376,20 @@ func TestSingleNodeCORS(t *testing.T) {
 	res, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, "testhost.com", res.Header.Get("Access-Control-Allow-Origin"))
+}
+
+func TestSingleNodeDoubleSlash(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+		return
+	}
+	s, finish := setupSingleNodeTest("TestSingleNodeDoubleSlash")
+	defer finish()
+	// client contains trailing slash in URL, causing path to contain double //
+	// without our middleware, this would cause a 302 redirect
+	roomClient = livekit.NewRoomServiceJSONClient(fmt.Sprintf("http://localhost:%d/", s.HTTPPort()), &http.Client{})
+	_, err := roomClient.ListRooms(contextWithToken(listRoomToken()), &livekit.ListRoomsRequest{})
+	require.NoError(t, err)
 }
 
 func TestPingPong(t *testing.T) {
@@ -549,8 +593,8 @@ func TestDeviceCodecOverride(t *testing.T) {
 	hasSeenVP8 := false
 	for _, a := range desc.Attributes {
 		if a.Key == "rtpmap" {
-			require.NotContains(t, a.Value, "H264", "should not contain H264 codec")
-			if strings.Contains(a.Value, "VP8") {
+			require.NotContains(t, a.Value, mime.MimeTypeCodecH264.String(), "should not contain H264 codec")
+			if strings.Contains(a.Value, mime.MimeTypeCodecVP8.String()) {
 				hasSeenVP8 = true
 			}
 		}
@@ -596,7 +640,7 @@ func TestSubscribeToCodecUnsupported(t *testing.T) {
 
 		tracks := c2.SubscribedTracks()[c1.ID()]
 		for _, t := range tracks {
-			if strings.EqualFold(t.Codec().MimeType, "video/vp8") {
+			if mime.IsMimeTypeStringVP8(t.Codec().MimeType) {
 				return ""
 			}
 		}
@@ -618,7 +662,7 @@ func TestSubscribeToCodecUnsupported(t *testing.T) {
 		remoteC1 := c2.GetRemoteParticipant(c1.ID())
 		require.NotNil(t, remoteC1)
 		for _, track := range remoteC1.Tracks {
-			if strings.EqualFold(track.MimeType, "video/h264") {
+			if mime.IsMimeTypeStringH264(track.MimeType) {
 				h264TrackID = track.Sid
 				return true
 			}
@@ -653,7 +697,7 @@ func TestSubscribeToCodecUnsupported(t *testing.T) {
 		var vp8Count int
 		tracks := c2.SubscribedTracks()[c1.ID()]
 		for _, t := range tracks {
-			if strings.EqualFold(t.Codec().MimeType, "video/vp8") {
+			if mime.IsMimeTypeStringVP8(t.Codec().MimeType) {
 				vp8Count++
 			}
 		}
@@ -663,4 +707,195 @@ func TestSubscribeToCodecUnsupported(t *testing.T) {
 		return "did not 2 receive track with vp8"
 	})
 	require.Nil(t, c2.GetSubscriptionResponseAndClear())
+}
+
+func TestDataPublishSlowSubscriber(t *testing.T) {
+	if testing.Short() {
+		t.SkipNow()
+		return
+	}
+
+	dataChannelSlowThreshold := 21024
+
+	logger.Infow("----------------STARTING TEST----------------", "test", t.Name())
+	s := createSingleNodeServer(func(c *config.Config) {
+		c.RTC.DatachannelSlowThreshold = dataChannelSlowThreshold
+	})
+	go func() {
+		if err := s.Start(); err != nil {
+			logger.Errorw("server returned error", err)
+		}
+	}()
+
+	waitForServerToStart(s)
+
+	defer func() {
+		s.Stop(true)
+		logger.Infow("----------------FINISHING TEST----------------", "test", t.Name())
+	}()
+
+	pub := createRTCClient("pub", defaultServerPort, nil)
+	fastSub := createRTCClient("fastSub", defaultServerPort, nil)
+	slowSubNotDrop := createRTCClient("slowSubNotDrop", defaultServerPort, nil)
+	slowSubDrop := createRTCClient("slowSubDrop", defaultServerPort, nil)
+	waitUntilConnected(t, pub, fastSub, slowSubDrop, slowSubNotDrop)
+	defer func() {
+		pub.Stop()
+		fastSub.Stop()
+		slowSubNotDrop.Stop()
+		slowSubDrop.Stop()
+	}()
+
+	// no data should be dropped for fast subscriber
+	var fastDataIndex atomic.Uint64
+	fastSub.OnDataReceived = func(data []byte, sid string) {
+		idx := binary.BigEndian.Uint64(data[len(data)-8:])
+		require.Equal(t, fastDataIndex.Load()+1, idx)
+		fastDataIndex.Store(idx)
+	}
+
+	// no data should be dropped for slow subscriber that is above threshold
+	var slowNoDropDataIndex atomic.Uint64
+	var drainSlowSubNotDrop atomic.Bool
+	slowNoDropReader := testclient.NewDataChannelReader(dataChannelSlowThreshold * 2)
+	slowSubNotDrop.OnDataReceived = func(data []byte, sid string) {
+		idx := binary.BigEndian.Uint64(data[len(data)-8:])
+		require.Equal(t, slowNoDropDataIndex.Load()+1, idx)
+		slowNoDropDataIndex.Store(idx)
+		if !drainSlowSubNotDrop.Load() {
+			slowNoDropReader.Read(data, sid)
+		}
+	}
+
+	// data should be dropped for slow subscriber that is below threshold
+	var slowDropDataIndex atomic.Uint64
+	dropped := make(chan struct{})
+	slowDropReader := testclient.NewDataChannelReader(dataChannelSlowThreshold / 2)
+	slowSubDrop.OnDataReceived = func(data []byte, sid string) {
+		select {
+		case <-dropped:
+			return
+		default:
+		}
+		idx := binary.BigEndian.Uint64(data[len(data)-8:])
+		if idx != slowDropDataIndex.Load()+1 {
+			close(dropped)
+		}
+		slowDropDataIndex.Store(idx)
+		slowDropReader.Read(data, sid)
+	}
+
+	// publisher sends data as fast as possible, it will block by the slowest subscriber above the slow threshold
+	var (
+		blocked   atomic.Bool
+		stopWrite atomic.Bool
+		writeIdx  atomic.Uint64
+	)
+	writeStopped := make(chan struct{})
+	go func() {
+		defer close(writeStopped)
+		var i int
+		buf := make([]byte, 100)
+		for !stopWrite.Load() {
+			i++
+			binary.BigEndian.PutUint64(buf[len(buf)-8:], uint64(i))
+			if err := pub.PublishData(buf, livekit.DataPacket_RELIABLE); err != nil {
+				if errors.Is(err, datachannel.ErrDataDroppedBySlowReader) {
+					blocked.Store(true)
+					i--
+					continue
+				} else {
+					t.Log("error writing", err)
+					break
+				}
+			}
+			writeIdx.Store(uint64(i))
+		}
+	}()
+
+	<-dropped
+
+	time.Sleep(time.Second)
+	blocked.Store(false)
+	require.Eventually(t, func() bool { return blocked.Load() }, 30*time.Second, 100*time.Millisecond)
+	stopWrite.Store(true)
+	<-writeStopped
+	drainSlowSubNotDrop.Store(true)
+	require.Eventually(t, func() bool {
+		return writeIdx.Load() == fastDataIndex.Load() &&
+			writeIdx.Load() == slowNoDropDataIndex.Load()
+	}, 10*time.Second, 50*time.Millisecond, "writeIdx %d, fast %d, slowNoDrop %d", writeIdx.Load(), fastDataIndex.Load(), slowNoDropDataIndex.Load())
+}
+
+func TestFireTrackBySdp(t *testing.T) {
+	_, finish := setupSingleNodeTest("TestFireTrackBySdp")
+	defer finish()
+
+	var cases = []struct {
+		name   string
+		codecs []webrtc.RTPCodecCapability
+		pubSDK livekit.ClientInfo_SDK
+	}{
+		{
+			name: "js client could pub a/v tracks",
+			codecs: []webrtc.RTPCodecCapability{
+				{MimeType: "video/H264"},
+				{MimeType: "audio/opus"},
+			},
+			pubSDK: livekit.ClientInfo_JS,
+		},
+		{
+			name: "go client could pub audio tracks",
+			codecs: []webrtc.RTPCodecCapability{
+				{MimeType: "audio/opus"},
+			},
+			pubSDK: livekit.ClientInfo_GO,
+		},
+	}
+
+	for _, c := range cases {
+		codecs, sdk := c.codecs, c.pubSDK
+		t.Run(c.name, func(t *testing.T) {
+			c1 := createRTCClient(c.name+"_c1", defaultServerPort, &testclient.Options{
+				ClientInfo: &livekit.ClientInfo{
+					Sdk: sdk,
+				},
+			})
+			c2 := createRTCClient(c.name+"_c2", defaultServerPort, &testclient.Options{
+				AutoSubscribe: true,
+				ClientInfo: &livekit.ClientInfo{
+					Sdk: livekit.ClientInfo_JS,
+				},
+			})
+			waitUntilConnected(t, c1, c2)
+			defer func() {
+				c1.Stop()
+				c2.Stop()
+			}()
+
+			// publish tracks and don't write any packets
+			for _, codec := range codecs {
+				_, err := c1.AddStaticTrackWithCodec(codec, codec.MimeType, codec.MimeType, testclient.AddTrackNoWriter())
+				require.NoError(t, err)
+			}
+
+			require.Eventually(t, func() bool {
+				return len(c2.SubscribedTracks()[c1.ID()]) == len(codecs)
+			}, 5*time.Second, 10*time.Millisecond)
+
+			var found int
+			for _, pubTrack := range c1.GetPublishedTrackIDs() {
+				t.Log("pub track", pubTrack)
+				tracks := c2.SubscribedTracks()[c1.ID()]
+				for _, track := range tracks {
+					t.Log("sub track", track.ID(), track.Codec())
+					if track.Codec().PayloadType == 0 && track.ID() == pubTrack {
+						found++
+						break
+					}
+				}
+			}
+			require.Equal(t, len(codecs), found)
+		})
+	}
 }

@@ -67,7 +67,7 @@ func (m *APIKeyAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request,
 
 	if authHeader != "" {
 		if !strings.HasPrefix(authHeader, bearerPrefix) {
-			handleError(w, r, http.StatusUnauthorized, ErrMissingAuthorization)
+			HandleError(w, r, http.StatusUnauthorized, ErrMissingAuthorization)
 			return
 		}
 
@@ -80,19 +80,19 @@ func (m *APIKeyAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	if authToken != "" {
 		v, err := auth.ParseAPIToken(authToken)
 		if err != nil {
-			handleError(w, r, http.StatusUnauthorized, ErrInvalidAuthorizationToken)
+			HandleError(w, r, http.StatusUnauthorized, ErrInvalidAuthorizationToken)
 			return
 		}
 
 		secret := m.provider.GetSecret(v.APIKey())
 		if secret == "" {
-			handleError(w, r, http.StatusUnauthorized, errors.New("invalid API key: "+v.APIKey()))
+			HandleError(w, r, http.StatusUnauthorized, errors.New("invalid API key: "+v.APIKey()))
 			return
 		}
 
 		grants, err := v.Verify(secret)
 		if err != nil {
-			handleError(w, r, http.StatusUnauthorized, errors.New("invalid token: "+authToken+", error: "+err.Error()))
+			HandleError(w, r, http.StatusUnauthorized, errors.New("invalid token: "+authToken+", error: "+err.Error()))
 			return
 		}
 
@@ -105,6 +105,13 @@ func (m *APIKeyAuthMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request,
 	}
 
 	next.ServeHTTP(w, r)
+}
+
+func WithAPIKey(ctx context.Context, grants *auth.ClaimGrants, apiKey string) context.Context {
+	return context.WithValue(ctx, grantsKey{}, &grantsValue{
+		claims: grants,
+		apiKey: apiKey,
+	})
 }
 
 func GetGrants(ctx context.Context) *auth.ClaimGrants {
@@ -209,6 +216,19 @@ func EnsureSIPCallPermission(ctx context.Context) error {
 	if claims == nil || claims.SIP == nil || !claims.SIP.Call {
 		return ErrPermissionDenied
 	}
+	return nil
+}
+
+func EnsureDestRoomPermission(ctx context.Context, source livekit.RoomName, destination livekit.RoomName) error {
+	claims := GetGrants(ctx)
+	if claims == nil || claims.Video == nil {
+		return ErrPermissionDenied
+	}
+
+	if !claims.Video.RoomAdmin || source != livekit.RoomName(claims.Video.Room) || destination != livekit.RoomName(claims.Video.DestinationRoom) {
+		return ErrPermissionDenied
+	}
+
 	return nil
 }
 

@@ -6,7 +6,9 @@ import (
 
 	"github.com/livekit/livekit-server/pkg/rtc/types"
 	"github.com/livekit/livekit-server/pkg/sfu"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 )
 
 type FakeMediaTrack struct {
@@ -82,12 +84,12 @@ type FakeMediaTrack struct {
 	getQualityForDimensionReturnsOnCall map[int]struct {
 		result1 livekit.VideoQuality
 	}
-	GetTemporalLayerForSpatialFpsStub        func(int32, uint32, string) int32
+	GetTemporalLayerForSpatialFpsStub        func(int32, uint32, mime.MimeType) int32
 	getTemporalLayerForSpatialFpsMutex       sync.RWMutex
 	getTemporalLayerForSpatialFpsArgsForCall []struct {
 		arg1 int32
 		arg2 uint32
-		arg3 string
+		arg3 mime.MimeType
 	}
 	getTemporalLayerForSpatialFpsReturns struct {
 		result1 int32
@@ -166,6 +168,16 @@ type FakeMediaTrack struct {
 	kindReturnsOnCall map[int]struct {
 		result1 livekit.TrackType
 	}
+	LoggerStub        func() logger.Logger
+	loggerMutex       sync.RWMutex
+	loggerArgsForCall []struct {
+	}
+	loggerReturns struct {
+		result1 logger.Logger
+	}
+	loggerReturnsOnCall map[int]struct {
+		result1 logger.Logger
+	}
 	NameStub        func() string
 	nameMutex       sync.RWMutex
 	nameArgsForCall []struct {
@@ -175,6 +187,10 @@ type FakeMediaTrack struct {
 	}
 	nameReturnsOnCall map[int]struct {
 		result1 string
+	}
+	OnTrackSubscribedStub        func()
+	onTrackSubscribedMutex       sync.RWMutex
+	onTrackSubscribedArgsForCall []struct {
 	}
 	PublisherIDStub        func() livekit.ParticipantID
 	publisherIDMutex       sync.RWMutex
@@ -671,13 +687,13 @@ func (fake *FakeMediaTrack) GetQualityForDimensionReturnsOnCall(i int, result1 l
 	}{result1}
 }
 
-func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFps(arg1 int32, arg2 uint32, arg3 string) int32 {
+func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFps(arg1 int32, arg2 uint32, arg3 mime.MimeType) int32 {
 	fake.getTemporalLayerForSpatialFpsMutex.Lock()
 	ret, specificReturn := fake.getTemporalLayerForSpatialFpsReturnsOnCall[len(fake.getTemporalLayerForSpatialFpsArgsForCall)]
 	fake.getTemporalLayerForSpatialFpsArgsForCall = append(fake.getTemporalLayerForSpatialFpsArgsForCall, struct {
 		arg1 int32
 		arg2 uint32
-		arg3 string
+		arg3 mime.MimeType
 	}{arg1, arg2, arg3})
 	stub := fake.GetTemporalLayerForSpatialFpsStub
 	fakeReturns := fake.getTemporalLayerForSpatialFpsReturns
@@ -698,13 +714,13 @@ func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFpsCallCount() int {
 	return len(fake.getTemporalLayerForSpatialFpsArgsForCall)
 }
 
-func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFpsCalls(stub func(int32, uint32, string) int32) {
+func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFpsCalls(stub func(int32, uint32, mime.MimeType) int32) {
 	fake.getTemporalLayerForSpatialFpsMutex.Lock()
 	defer fake.getTemporalLayerForSpatialFpsMutex.Unlock()
 	fake.GetTemporalLayerForSpatialFpsStub = stub
 }
 
-func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFpsArgsForCall(i int) (int32, uint32, string) {
+func (fake *FakeMediaTrack) GetTemporalLayerForSpatialFpsArgsForCall(i int) (int32, uint32, mime.MimeType) {
 	fake.getTemporalLayerForSpatialFpsMutex.RLock()
 	defer fake.getTemporalLayerForSpatialFpsMutex.RUnlock()
 	argsForCall := fake.getTemporalLayerForSpatialFpsArgsForCall[i]
@@ -1113,6 +1129,59 @@ func (fake *FakeMediaTrack) KindReturnsOnCall(i int, result1 livekit.TrackType) 
 	}{result1}
 }
 
+func (fake *FakeMediaTrack) Logger() logger.Logger {
+	fake.loggerMutex.Lock()
+	ret, specificReturn := fake.loggerReturnsOnCall[len(fake.loggerArgsForCall)]
+	fake.loggerArgsForCall = append(fake.loggerArgsForCall, struct {
+	}{})
+	stub := fake.LoggerStub
+	fakeReturns := fake.loggerReturns
+	fake.recordInvocation("Logger", []interface{}{})
+	fake.loggerMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeMediaTrack) LoggerCallCount() int {
+	fake.loggerMutex.RLock()
+	defer fake.loggerMutex.RUnlock()
+	return len(fake.loggerArgsForCall)
+}
+
+func (fake *FakeMediaTrack) LoggerCalls(stub func() logger.Logger) {
+	fake.loggerMutex.Lock()
+	defer fake.loggerMutex.Unlock()
+	fake.LoggerStub = stub
+}
+
+func (fake *FakeMediaTrack) LoggerReturns(result1 logger.Logger) {
+	fake.loggerMutex.Lock()
+	defer fake.loggerMutex.Unlock()
+	fake.LoggerStub = nil
+	fake.loggerReturns = struct {
+		result1 logger.Logger
+	}{result1}
+}
+
+func (fake *FakeMediaTrack) LoggerReturnsOnCall(i int, result1 logger.Logger) {
+	fake.loggerMutex.Lock()
+	defer fake.loggerMutex.Unlock()
+	fake.LoggerStub = nil
+	if fake.loggerReturnsOnCall == nil {
+		fake.loggerReturnsOnCall = make(map[int]struct {
+			result1 logger.Logger
+		})
+	}
+	fake.loggerReturnsOnCall[i] = struct {
+		result1 logger.Logger
+	}{result1}
+}
+
 func (fake *FakeMediaTrack) Name() string {
 	fake.nameMutex.Lock()
 	ret, specificReturn := fake.nameReturnsOnCall[len(fake.nameArgsForCall)]
@@ -1164,6 +1233,30 @@ func (fake *FakeMediaTrack) NameReturnsOnCall(i int, result1 string) {
 	fake.nameReturnsOnCall[i] = struct {
 		result1 string
 	}{result1}
+}
+
+func (fake *FakeMediaTrack) OnTrackSubscribed() {
+	fake.onTrackSubscribedMutex.Lock()
+	fake.onTrackSubscribedArgsForCall = append(fake.onTrackSubscribedArgsForCall, struct {
+	}{})
+	stub := fake.OnTrackSubscribedStub
+	fake.recordInvocation("OnTrackSubscribed", []interface{}{})
+	fake.onTrackSubscribedMutex.Unlock()
+	if stub != nil {
+		fake.OnTrackSubscribedStub()
+	}
+}
+
+func (fake *FakeMediaTrack) OnTrackSubscribedCallCount() int {
+	fake.onTrackSubscribedMutex.RLock()
+	defer fake.onTrackSubscribedMutex.RUnlock()
+	return len(fake.onTrackSubscribedArgsForCall)
+}
+
+func (fake *FakeMediaTrack) OnTrackSubscribedCalls(stub func()) {
+	fake.onTrackSubscribedMutex.Lock()
+	defer fake.onTrackSubscribedMutex.Unlock()
+	fake.OnTrackSubscribedStub = stub
 }
 
 func (fake *FakeMediaTrack) PublisherID() livekit.ParticipantID {
@@ -1799,8 +1892,12 @@ func (fake *FakeMediaTrack) Invocations() map[string][][]interface{} {
 	defer fake.isSubscriberMutex.RUnlock()
 	fake.kindMutex.RLock()
 	defer fake.kindMutex.RUnlock()
+	fake.loggerMutex.RLock()
+	defer fake.loggerMutex.RUnlock()
 	fake.nameMutex.RLock()
 	defer fake.nameMutex.RUnlock()
+	fake.onTrackSubscribedMutex.RLock()
+	defer fake.onTrackSubscribedMutex.RUnlock()
 	fake.publisherIDMutex.RLock()
 	defer fake.publisherIDMutex.RUnlock()
 	fake.publisherIdentityMutex.RLock()

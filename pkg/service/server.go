@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pion/turn/v2"
+	"github.com/pion/turn/v4"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"github.com/twitchtv/twirp"
@@ -35,38 +35,43 @@ import (
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/livekit/livekit-server/pkg/config"
-	"github.com/livekit/livekit-server/pkg/routing"
-	"github.com/livekit/livekit-server/version"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/utils/xtwirp"
+
+	"github.com/livekit/livekit-server/pkg/config"
+	"github.com/livekit/livekit-server/pkg/routing"
+	"github.com/livekit/livekit-server/version"
 )
 
 type LivekitServer struct {
-	config       *config.Config
-	ioService    *IOInfoService
-	rtcService   *RTCService
-	agentService *AgentService
-	httpServer   *http.Server
-	promServer   *http.Server
-	router       routing.Router
-	roomManager  *RoomManager
-	signalServer *SignalServer
-	turnServer   *turn.Server
-	currentNode  routing.LocalNode
-	running      atomic.Bool
-	doneChan     chan struct{}
-	closedChan   chan struct{}
+	config         *config.Config
+	ioService      *IOInfoService
+	rtcService     *RTCService
+	rtcRestService *RTCRestService
+	agentService   *AgentService
+	httpServer     *http.Server
+	promServer     *http.Server
+	router         routing.Router
+	roomManager    *RoomManager
+	signalServer   *SignalServer
+	turnServer     *turn.Server
+	currentNode    routing.LocalNode
+	running        atomic.Bool
+	doneChan       chan struct{}
+	closedChan     chan struct{}
 }
 
 func NewLivekitServer(conf *config.Config,
 	roomService livekit.RoomService,
+	agentDispatchService *AgentDispatchService,
 	egressService *EgressService,
 	ingressService *IngressService,
 	sipService *SIPService,
 	ioService *IOInfoService,
 	rtcService *RTCService,
+	rtcRestService *RTCRestService,
 	agentService *AgentService,
 	keyProvider auth.KeyProvider,
 	router routing.Router,
@@ -76,13 +81,14 @@ func NewLivekitServer(conf *config.Config,
 	currentNode routing.LocalNode,
 ) (s *LivekitServer, err error) {
 	s = &LivekitServer{
-		config:       conf,
-		ioService:    ioService,
-		rtcService:   rtcService,
-		agentService: agentService,
-		router:       router,
-		roomManager:  roomManager,
-		signalServer: signalServer,
+		config:         conf,
+		ioService:      ioService,
+		rtcService:     rtcService,
+		rtcRestService: rtcRestService,
+		agentService:   agentService,
+		router:         router,
+		roomManager:    roomManager,
+		signalServer:   signalServer,
 		// turn server starts automatically
 		turnServer:  turnServer,
 		currentNode: currentNode,
@@ -97,26 +103,32 @@ func NewLivekitServer(conf *config.Config,
 			AllowOriginFunc: func(origin string) bool {
 				return true
 			},
+			AllowedMethods: []string{"OPTIONS", "HEAD", "GET", "POST", "PATCH", "DELETE"},
 			AllowedHeaders: []string{"*"},
+			ExposedHeaders: []string{"*"},
 			// allow preflight to be cached for a day
 			MaxAge: 86400,
 		}),
+		negroni.HandlerFunc(RemoveDoubleSlashes),
 	}
 	if keyProvider != nil {
 		middlewares = append(middlewares, NewAPIKeyAuthMiddleware(keyProvider))
 	}
 
-	twirpLoggingHook := TwirpLogger()
-	twirpRequestStatusHook := TwirpRequestStatusReporter()
-	roomServer := livekit.NewRoomServiceServer(roomService, twirpLoggingHook)
-	egressServer := livekit.NewEgressServer(egressService, twirp.WithServerHooks(
-		twirp.ChainHooks(
-			twirpLoggingHook,
-			twirpRequestStatusHook,
-		),
-	))
-	ingressServer := livekit.NewIngressServer(ingressService, twirpLoggingHook)
-	sipServer := livekit.NewSIPServer(sipService, twirpLoggingHook)
+	serverOptions := []interface{}{
+		twirp.WithServerHooks(twirp.ChainHooks(
+			TwirpLogger(),
+			TwirpRequestStatusReporter(),
+		)),
+	}
+	for _, opt := range xtwirp.DefaultServerOptions() {
+		serverOptions = append(serverOptions, opt)
+	}
+	roomServer := livekit.NewRoomServiceServer(roomService, serverOptions...)
+	agentDispatchServer := livekit.NewAgentDispatchServiceServer(agentDispatchService, serverOptions...)
+	egressServer := livekit.NewEgressServer(egressService, serverOptions...)
+	ingressServer := livekit.NewIngressServer(ingressService, serverOptions...)
+	sipServer := livekit.NewSIPServer(sipService, serverOptions...)
 
 	mux := http.NewServeMux()
 	if conf.Development {
@@ -126,13 +138,15 @@ func NewLivekitServer(conf *config.Config,
 		mux.HandleFunc("/debug/rooms", s.debugInfo)
 	}
 
-	mux.Handle(roomServer.PathPrefix(), roomServer)
-	mux.Handle(egressServer.PathPrefix(), egressServer)
-	mux.Handle(ingressServer.PathPrefix(), ingressServer)
-	mux.Handle(sipServer.PathPrefix(), sipServer)
+	xtwirp.RegisterServer(mux, roomServer)
+	xtwirp.RegisterServer(mux, agentDispatchServer)
+	xtwirp.RegisterServer(mux, egressServer)
+	xtwirp.RegisterServer(mux, ingressServer)
+	xtwirp.RegisterServer(mux, sipServer)
 	mux.Handle("/rtc", rtcService)
+	rtcService.SetupRoutes(mux)
+	rtcRestService.SetupRoutes(mux)
 	mux.Handle("/agent", agentService)
-	mux.HandleFunc("/rtc/validate", rtcService.Validate)
 	mux.HandleFunc("/", s.defaultHandler)
 
 	s.httpServer = &http.Server{
@@ -157,10 +171,6 @@ func NewLivekitServer(conf *config.Config,
 		}
 	}
 
-	// clean up old rooms on startup
-	if err = roomManager.CleanupRooms(); err != nil {
-		return
-	}
 	if err = router.RemoveDeadNodes(); err != nil {
 		return
 	}
@@ -169,7 +179,7 @@ func NewLivekitServer(conf *config.Config,
 }
 
 func (s *LivekitServer) Node() *livekit.Node {
-	return s.currentNode
+	return s.currentNode.Clone()
 }
 
 func (s *LivekitServer) HTTPPort() int {
@@ -229,8 +239,8 @@ func (s *LivekitServer) Start() error {
 
 	values := []interface{}{
 		"portHttp", s.config.Port,
-		"nodeID", s.currentNode.Id,
-		"nodeIP", s.currentNode.Ip,
+		"nodeID", s.currentNode.NodeID(),
+		"nodeIP", s.currentNode.NodeIP(),
 		"version", version.Version,
 	}
 	if s.config.BindAddresses != nil {

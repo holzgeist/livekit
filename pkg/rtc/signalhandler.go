@@ -62,8 +62,17 @@ func HandleParticipantSignal(room types.Room, participant types.LocalParticipant
 		}
 
 	case *livekit.SignalRequest_Leave:
-		pLogger.Debugw("client leaving room")
-		room.RemoveParticipant(participant.Identity(), participant.ID(), types.ParticipantCloseReasonClientRequestLeave)
+		reason := types.ParticipantCloseReasonClientRequestLeave
+		switch msg.Leave.Reason {
+		case livekit.DisconnectReason_CLIENT_INITIATED:
+			reason = types.ParticipantCloseReasonClientRequestLeave
+		case livekit.DisconnectReason_USER_UNAVAILABLE:
+			reason = types.ParticipantCloseReasonUserUnavailable
+		case livekit.DisconnectReason_USER_REJECTED:
+			reason = types.ParticipantCloseReasonUserRejected
+		}
+		pLogger.Debugw("client leaving room", "reason", reason)
+		room.RemoveParticipant(participant.Identity(), participant.ID(), reason)
 
 	case *livekit.SignalRequest_SubscriptionPermission:
 		err := room.UpdateSubscriptionPermission(participant, msg.SubscriptionPermission)
@@ -92,17 +101,48 @@ func HandleParticipantSignal(room types.Room, participant types.LocalParticipant
 		}
 
 	case *livekit.SignalRequest_UpdateMetadata:
+		requestResponse := &livekit.RequestResponse{
+			RequestId: msg.UpdateMetadata.RequestId,
+			Reason:    livekit.RequestResponse_OK,
+		}
 		if participant.ClaimGrants().Video.GetCanUpdateOwnMetadata() {
-			err := room.UpdateParticipantMetadata(
-				participant,
+			if err := participant.CheckMetadataLimits(
 				msg.UpdateMetadata.Name,
 				msg.UpdateMetadata.Metadata,
 				msg.UpdateMetadata.Attributes,
-			)
-			if err != nil {
+			); err == nil {
+				if msg.UpdateMetadata.Name != "" {
+					participant.SetName(msg.UpdateMetadata.Name)
+				}
+				if msg.UpdateMetadata.Metadata != "" {
+					participant.SetMetadata(msg.UpdateMetadata.Metadata)
+				}
+				if msg.UpdateMetadata.Attributes != nil {
+					participant.SetAttributes(msg.UpdateMetadata.Attributes)
+				}
+			} else {
 				pLogger.Warnw("could not update metadata", err)
+
+				switch err {
+				case ErrNameExceedsLimits:
+					requestResponse.Reason = livekit.RequestResponse_LIMIT_EXCEEDED
+					requestResponse.Message = "exceeds name length limit"
+
+				case ErrMetadataExceedsLimits:
+					requestResponse.Reason = livekit.RequestResponse_LIMIT_EXCEEDED
+					requestResponse.Message = "exceeds metadata size limit"
+
+				case ErrAttributesExceedsLimits:
+					requestResponse.Reason = livekit.RequestResponse_LIMIT_EXCEEDED
+					requestResponse.Message = "exceeds attributes size limit"
+				}
+
 			}
+		} else {
+			requestResponse.Reason = livekit.RequestResponse_NOT_ALLOWED
+			requestResponse.Message = "does not have permission to update own metadata"
 		}
+		participant.SendRequestResponse(requestResponse)
 
 	case *livekit.SignalRequest_UpdateAudioTrack:
 		if err := participant.UpdateAudioTrack(msg.UpdateAudioTrack); err != nil {

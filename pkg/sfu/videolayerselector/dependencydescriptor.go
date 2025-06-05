@@ -50,11 +50,11 @@ func NewDependencyDescriptor(logger logger.Logger) *DependencyDescriptor {
 	}
 }
 
-func NewDependencyDescriptorFromNull(vls VideoLayerSelector) *DependencyDescriptor {
+func NewDependencyDescriptorFromOther(vls VideoLayerSelector) *DependencyDescriptor {
 	return &DependencyDescriptor{
-		Base:      vls.(*Null).Base,
+		Base:      vls.getBase(),
 		decisions: NewSelectorDecisionCache(256, 80),
-		fnWrapper: FrameNumberWrapper{logger: vls.(*Null).logger},
+		fnWrapper: FrameNumberWrapper{logger: vls.getLogger()},
 	}
 }
 
@@ -281,7 +281,7 @@ func (d *DependencyDescriptor) Select(extPkt *buffer.ExtPacket, _layer int32) (r
 		d.logger.Debugw(
 			"switch to target",
 			"highestDecodeTarget", highestDecodeTarget,
-			"current", d.currentLayer,
+			"previous", d.previousLayer,
 			"bitmask", *d.activeDecodeTargetsBitmask,
 			"fn", dd.FrameNumber,
 			"efn", extFrameNum,

@@ -19,28 +19,24 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/avast/retry-go/v4"
-	"github.com/pkg/errors"
 	"github.com/twitchtv/twirp"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/livekit/livekit-server/pkg/agent"
 	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/routing"
 	"github.com/livekit/livekit-server/pkg/rtc"
 	"github.com/livekit/protocol/egress"
 	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/rpc"
+	"github.com/livekit/protocol/utils"
 )
 
 type RoomService struct {
 	limitConf         config.LimitConfig
 	apiConf           config.APIConfig
-	psrpcConf         rpc.PSRPCConfig
 	router            routing.MessageRouter
 	roomAllocator     RoomAllocator
 	roomStore         ServiceStore
-	agentClient       agent.Client
 	egressLauncher    rtc.EgressLauncher
 	topicFormatter    rpc.TopicFormatter
 	roomClient        rpc.TypedRoomClient
@@ -50,11 +46,9 @@ type RoomService struct {
 func NewRoomService(
 	limitConf config.LimitConfig,
 	apiConf config.APIConfig,
-	psrpcConf rpc.PSRPCConfig,
 	router routing.MessageRouter,
 	roomAllocator RoomAllocator,
 	serviceStore ServiceStore,
-	agentClient agent.Client,
 	egressLauncher rtc.EgressLauncher,
 	topicFormatter rpc.TopicFormatter,
 	roomClient rpc.TypedRoomClient,
@@ -63,11 +57,9 @@ func NewRoomService(
 	svc = &RoomService{
 		limitConf:         limitConf,
 		apiConf:           apiConf,
-		psrpcConf:         psrpcConf,
 		router:            router,
 		roomAllocator:     roomAllocator,
 		roomStore:         serviceStore,
-		agentClient:       agentClient,
 		egressLauncher:    egressLauncher,
 		topicFormatter:    topicFormatter,
 		roomClient:        roomClient,
@@ -77,56 +69,33 @@ func NewRoomService(
 }
 
 func (s *RoomService) CreateRoom(ctx context.Context, req *livekit.CreateRoomRequest) (*livekit.Room, error) {
-	clone := redactCreateRoomRequest(req)
+	redactedReq := redactCreateRoomRequest(req)
+	RecordRequest(ctx, redactedReq)
 
-	AppendLogFields(ctx, "room", clone.Name, "request", clone)
+	AppendLogFields(ctx, "room", req.Name, "request", logger.Proto(redactedReq))
 	if err := EnsureCreatePermission(ctx); err != nil {
 		return nil, twirpAuthError(err)
 	} else if req.Egress != nil && s.egressLauncher == nil {
 		return nil, ErrEgressNotConnected
 	}
 
-	if limit := s.limitConf.MaxRoomNameLength; limit > 0 && len(req.Name) > limit {
-		return nil, fmt.Errorf("%w: max length %d", ErrRoomNameExceedsLimits, limit)
+	if !s.limitConf.CheckRoomNameLength(req.Name) {
+		return nil, fmt.Errorf("%w: max length %d", ErrRoomNameExceedsLimits, s.limitConf.MaxRoomNameLength)
 	}
 
-	rm, created, err := s.roomAllocator.CreateRoom(ctx, req)
-	if err != nil {
-		err = errors.Wrap(err, "could not create room")
-		return nil, err
-	}
-
-	done, err := s.startRoom(ctx, livekit.RoomName(req.Name))
+	err := s.roomAllocator.SelectRoomNode(ctx, livekit.RoomName(req.Name), livekit.NodeID(req.NodeId))
 	if err != nil {
 		return nil, err
 	}
-	defer done()
 
-	if created {
-		go s.agentClient.LaunchJob(context.WithoutCancel(ctx), &agent.JobDescription{
-			JobType: livekit.JobType_JT_ROOM,
-			Room:    rm,
-		})
-
-		if req.Egress != nil && req.Egress.Room != nil {
-			// ensure room name matches
-			req.Egress.Room.RoomName = req.Name
-			_, err = s.egressLauncher.StartEgress(ctx, &rpc.StartEgressRequest{
-				Request: &rpc.StartEgressRequest_RoomComposite{
-					RoomComposite: req.Egress.Room,
-				},
-				RoomId: rm.Sid,
-			})
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return rm, nil
+	room, err := s.router.CreateRoom(ctx, req)
+	RecordResponse(ctx, room)
+	return room, err
 }
 
 func (s *RoomService) ListRooms(ctx context.Context, req *livekit.ListRoomsRequest) (*livekit.ListRoomsResponse, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Names)
 	err := EnsureListPermission(ctx)
 	if err != nil {
@@ -146,10 +115,13 @@ func (s *RoomService) ListRooms(ctx context.Context, req *livekit.ListRoomsReque
 	res := &livekit.ListRoomsResponse{
 		Rooms: rooms,
 	}
+	RecordResponse(ctx, res)
 	return res, nil
 }
 
 func (s *RoomService) DeleteRoom(ctx context.Context, req *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Room)
 	if err := EnsureCreatePermission(ctx); err != nil {
 		return nil, twirpAuthError(err)
@@ -160,11 +132,11 @@ func (s *RoomService) DeleteRoom(ctx context.Context, req *livekit.DeleteRoomReq
 		return nil, err
 	}
 
-	done, err := s.startRoom(ctx, livekit.RoomName(req.Room))
+	// ensure at least one node is available to handle the request
+	room, err := s.router.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: req.Room})
 	if err != nil {
 		return nil, err
 	}
-	defer done()
 
 	_, err = s.roomClient.DeleteRoom(ctx, s.topicFormatter.RoomTopic(ctx, livekit.RoomName(req.Room)), req)
 	if err != nil {
@@ -172,10 +144,14 @@ func (s *RoomService) DeleteRoom(ctx context.Context, req *livekit.DeleteRoomReq
 	}
 
 	err = s.roomStore.DeleteRoom(ctx, livekit.RoomName(req.Room))
-	return &livekit.DeleteRoomResponse{}, err
+	res := &livekit.DeleteRoomResponse{}
+	RecordResponse(ctx, room)
+	return res, err
 }
 
 func (s *RoomService) ListParticipants(ctx context.Context, req *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Room)
 	if err := EnsureAdminPermission(ctx, livekit.RoomName(req.Room)); err != nil {
 		return nil, twirpAuthError(err)
@@ -189,10 +165,13 @@ func (s *RoomService) ListParticipants(ctx context.Context, req *livekit.ListPar
 	res := &livekit.ListParticipantsResponse{
 		Participants: participants,
 	}
+	RecordResponse(ctx, res)
 	return res, nil
 }
 
 func (s *RoomService) GetParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Room, "participant", req.Identity)
 	if err := EnsureAdminPermission(ctx, livekit.RoomName(req.Room)); err != nil {
 		return nil, twirpAuthError(err)
@@ -203,10 +182,13 @@ func (s *RoomService) GetParticipant(ctx context.Context, req *livekit.RoomParti
 		return nil, err
 	}
 
+	RecordResponse(ctx, participant)
 	return participant, nil
 }
 
 func (s *RoomService) RemoveParticipant(ctx context.Context, req *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Room, "participant", req.Identity)
 
 	if err := EnsureAdminPermission(ctx, livekit.RoomName(req.Room)); err != nil {
@@ -217,43 +199,62 @@ func (s *RoomService) RemoveParticipant(ctx context.Context, req *livekit.RoomPa
 		return nil, twirp.NotFoundError("participant not found")
 	}
 
-	return s.participantClient.RemoveParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	res, err := s.participantClient.RemoveParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func (s *RoomService) MutePublishedTrack(ctx context.Context, req *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error) {
+	RecordRequest(ctx, req)
+
 	AppendLogFields(ctx, "room", req.Room, "participant", req.Identity, "trackID", req.TrackSid, "muted", req.Muted)
 	if err := EnsureAdminPermission(ctx, livekit.RoomName(req.Room)); err != nil {
 		return nil, twirpAuthError(err)
 	}
 
-	return s.participantClient.MutePublishedTrack(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	res, err := s.participantClient.MutePublishedTrack(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func (s *RoomService) UpdateParticipant(ctx context.Context, req *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error) {
+	RecordRequest(ctx, redactUpdateParticipantRequest(req))
+
 	AppendLogFields(ctx, "room", req.Room, "participant", req.Identity)
-	maxMetadataSize := int(s.limitConf.MaxMetadataSize)
-	if maxMetadataSize > 0 && len(req.Metadata) > maxMetadataSize {
-		return nil, twirp.InvalidArgumentError(ErrMetadataExceedsLimits.Error(), strconv.Itoa(maxMetadataSize))
+
+	if !s.limitConf.CheckParticipantNameLength(req.Name) {
+		return nil, twirp.InvalidArgumentError(ErrNameExceedsLimits.Error(), strconv.Itoa(s.limitConf.MaxParticipantNameLength))
 	}
-	maxAttributeSize := int(s.limitConf.MaxAttributesSize)
-	if maxAttributeSize > 0 {
-		total := 0
-		for key, val := range req.Attributes {
-			total += len(key) + len(val)
-		}
-		if total > maxAttributeSize {
-			return nil, twirp.InvalidArgumentError(ErrAttributeExceedsLimits.Error(), strconv.Itoa(maxAttributeSize))
-		}
+
+	if !s.limitConf.CheckMetadataSize(req.Metadata) {
+		return nil, twirp.InvalidArgumentError(ErrMetadataExceedsLimits.Error(), strconv.Itoa(int(s.limitConf.MaxMetadataSize)))
+	}
+
+	if !s.limitConf.CheckAttributesSize(req.Attributes) {
+		return nil, twirp.InvalidArgumentError(ErrAttributeExceedsLimits.Error(), strconv.Itoa(int(s.limitConf.MaxAttributesSize)))
 	}
 
 	if err := EnsureAdminPermission(ctx, livekit.RoomName(req.Room)); err != nil {
 		return nil, twirpAuthError(err)
 	}
 
-	return s.participantClient.UpdateParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	if os, ok := s.roomStore.(OSSServiceStore); ok {
+		found, err := os.HasParticipant(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity))
+		if err != nil {
+			return nil, err
+		} else if !found {
+			return nil, ErrParticipantNotFound
+		}
+	}
+
+	res, err := s.participantClient.UpdateParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func (s *RoomService) UpdateSubscriptions(ctx context.Context, req *livekit.UpdateSubscriptionsRequest) (*livekit.UpdateSubscriptionsResponse, error) {
+	RecordRequest(ctx, req)
+
 	trackSIDs := append(make([]string, 0), req.TrackSids...)
 	for _, pt := range req.ParticipantTracks {
 		trackSIDs = append(trackSIDs, pt.TrackSids...)
@@ -264,20 +265,33 @@ func (s *RoomService) UpdateSubscriptions(ctx context.Context, req *livekit.Upda
 		return nil, twirpAuthError(err)
 	}
 
-	return s.participantClient.UpdateSubscriptions(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	res, err := s.participantClient.UpdateSubscriptions(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func (s *RoomService) SendData(ctx context.Context, req *livekit.SendDataRequest) (*livekit.SendDataResponse, error) {
+	RecordRequest(ctx, redactSendDataRequest(req))
+
 	roomName := livekit.RoomName(req.Room)
 	AppendLogFields(ctx, "room", roomName, "size", len(req.Data))
 	if err := EnsureAdminPermission(ctx, roomName); err != nil {
 		return nil, twirpAuthError(err)
 	}
 
-	return s.roomClient.SendData(ctx, s.topicFormatter.RoomTopic(ctx, livekit.RoomName(req.Room)), req)
+	// nonce is either absent or 128-bit UUID
+	if len(req.Nonce) != 0 && len(req.Nonce) != 16 {
+		return nil, twirp.NewError(twirp.InvalidArgument, fmt.Sprintf("nonce should be 16-bytes or not present, got: %d bytes", len(req.Nonce)))
+	}
+
+	res, err := s.roomClient.SendData(ctx, s.topicFormatter.RoomTopic(ctx, livekit.RoomName(req.Room)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func (s *RoomService) UpdateRoomMetadata(ctx context.Context, req *livekit.UpdateRoomMetadataRequest) (*livekit.Room, error) {
+	RecordRequest(ctx, redactUpdateRoomMetadataRequest(req))
+
 	AppendLogFields(ctx, "room", req.Room, "size", len(req.Metadata))
 	maxMetadataSize := int(s.limitConf.MaxMetadataSize)
 	if maxMetadataSize > 0 && len(req.Metadata) > maxMetadataSize {
@@ -288,91 +302,136 @@ func (s *RoomService) UpdateRoomMetadata(ctx context.Context, req *livekit.Updat
 		return nil, twirpAuthError(err)
 	}
 
-	room, _, err := s.roomStore.LoadRoom(ctx, livekit.RoomName(req.Room), false)
+	_, _, err := s.roomStore.LoadRoom(ctx, livekit.RoomName(req.Room), false)
 	if err != nil {
 		return nil, err
 	}
 
-	// no one has joined the room, would not have been created on an RTC node.
-	// in this case, we'd want to run create again
-	room, created, err := s.roomAllocator.CreateRoom(ctx, &livekit.CreateRoomRequest{
-		Name:     req.Room,
-		Metadata: req.Metadata,
-	})
+	room, err := s.roomClient.UpdateRoomMetadata(ctx, s.topicFormatter.RoomTopic(ctx, livekit.RoomName(req.Room)), req)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = s.roomClient.UpdateRoomMetadata(ctx, s.topicFormatter.RoomTopic(ctx, livekit.RoomName(req.Room)), req)
-	if err != nil {
-		return nil, err
-	}
-
-	err = s.confirmExecution(ctx, func() error {
-		room, _, err = s.roomStore.LoadRoom(ctx, livekit.RoomName(req.Room), false)
-		if err != nil {
-			return err
-		}
-		if room.Metadata != req.Metadata {
-			return ErrOperationFailed
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	if created {
-		go s.agentClient.LaunchJob(context.WithoutCancel(ctx), &agent.JobDescription{
-			JobType: livekit.JobType_JT_ROOM,
-			Room:    room,
-		})
-	}
-
+	RecordResponse(ctx, room)
 	return room, nil
 }
 
-func (s *RoomService) confirmExecution(ctx context.Context, f func() error) error {
-	ctx, cancel := context.WithTimeout(ctx, s.apiConf.ExecutionTimeout)
-	defer cancel()
-	return retry.Do(
-		f,
-		retry.Context(ctx),
-		retry.Delay(s.apiConf.CheckInterval),
-		retry.MaxDelay(s.apiConf.MaxCheckInterval),
-		retry.DelayType(retry.BackOffDelay),
-	)
+func (s *RoomService) ForwardParticipant(ctx context.Context, req *livekit.ForwardParticipantRequest) (*livekit.ForwardParticipantResponse, error) {
+	RecordRequest(ctx, req)
+
+	roomName := livekit.RoomName(req.Room)
+	AppendLogFields(ctx, "room", roomName, "participant", req.Identity)
+	if err := EnsureDestRoomPermission(ctx, roomName, livekit.RoomName(req.DestinationRoom)); err != nil {
+		return nil, twirpAuthError(err)
+	}
+
+	if req.Room == req.DestinationRoom {
+		return nil, twirp.InvalidArgumentError(ErrDestinationSameAsSourceRoom.Error(), "")
+	}
+
+	res, err := s.participantClient.ForwardParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
-// startRoom starts the room on an RTC node, to ensure metadata & empty timeout functionality
-func (s *RoomService) startRoom(ctx context.Context, roomName livekit.RoomName) (func(), error) {
-	res, err := s.router.StartParticipantSignal(ctx, roomName, routing.ParticipantInit{})
-	if err != nil {
-		return nil, err
+func (s *RoomService) MoveParticipant(ctx context.Context, req *livekit.MoveParticipantRequest) (*livekit.MoveParticipantResponse, error) {
+	RecordRequest(ctx, req)
+
+	roomName := livekit.RoomName(req.Room)
+	AppendLogFields(ctx, "room", roomName, "participant", req.Identity)
+	if err := EnsureDestRoomPermission(ctx, roomName, livekit.RoomName(req.DestinationRoom)); err != nil {
+		return nil, twirpAuthError(err)
 	}
-	return func() {
-		res.RequestSink.Close()
-		res.ResponseSource.Close()
-	}, nil
+
+	if req.Room == req.DestinationRoom {
+		return nil, twirp.InvalidArgumentError(ErrDestinationSameAsSourceRoom.Error(), "")
+	}
+
+	res, err := s.participantClient.MoveParticipant(ctx, s.topicFormatter.ParticipantTopic(ctx, livekit.RoomName(req.Room), livekit.ParticipantIdentity(req.Identity)), req)
+	RecordResponse(ctx, res)
+	return res, err
 }
 
 func redactCreateRoomRequest(req *livekit.CreateRoomRequest) *livekit.CreateRoomRequest {
-	if req.Egress == nil {
+	if req.Egress == nil && req.Metadata == "" {
 		// nothing to redact
 		return req
 	}
 
-	clone := proto.Clone(req).(*livekit.CreateRoomRequest)
+	clone := utils.CloneProto(req)
 
-	if clone.Egress.Room != nil {
-		egress.RedactEncodedOutputs(clone.Egress.Room)
+	if clone.Egress != nil {
+		if clone.Egress.Room != nil {
+			egress.RedactEncodedOutputs(clone.Egress.Room)
+		}
+		if clone.Egress.Participant != nil {
+			egress.RedactAutoEncodedOutput(clone.Egress.Participant)
+		}
+		if clone.Egress.Tracks != nil {
+			egress.RedactUpload(clone.Egress.Tracks)
+		}
 	}
-	if clone.Egress.Participant != nil {
-		egress.RedactAutoEncodedOutput(clone.Egress.Participant)
+
+	// replace with size of metadata to provide visibility on request size
+	if clone.Metadata != "" {
+		clone.Metadata = fmt.Sprintf("__size: %d", len(clone.Metadata))
 	}
-	if clone.Egress.Tracks != nil {
-		egress.RedactUpload(clone.Egress.Tracks)
+
+	return clone
+}
+
+func redactUpdateParticipantRequest(req *livekit.UpdateParticipantRequest) *livekit.UpdateParticipantRequest {
+	if req.Metadata == "" && len(req.Attributes) == 0 {
+		return req
 	}
+
+	clone := utils.CloneProto(req)
+
+	// replace with size of metadata/attributes to provide visibility on request size
+	if clone.Metadata != "" {
+		clone.Metadata = fmt.Sprintf("__size: %d", len(clone.Metadata))
+	}
+
+	if len(clone.Attributes) != 0 {
+		keysSize := 0
+		valuesSize := 0
+		for k, v := range clone.Attributes {
+			keysSize += len(k)
+			valuesSize += len(v)
+		}
+
+		clone.Attributes = map[string]string{
+			"__num_elements": fmt.Sprintf("%d", len(clone.Attributes)),
+			"__keys_size":    fmt.Sprintf("%d", keysSize),
+			"__values_size":  fmt.Sprintf("%d", valuesSize),
+		}
+	}
+
+	return clone
+}
+
+func redactSendDataRequest(req *livekit.SendDataRequest) *livekit.SendDataRequest {
+	if len(req.Data) == 0 {
+		return req
+	}
+
+	clone := utils.CloneProto(req)
+
+	// replace with size of data to provide visibility on request size
+	clone.Data = []byte(fmt.Sprintf("__size: %d", len(clone.Data)))
+
+	return clone
+}
+
+func redactUpdateRoomMetadataRequest(req *livekit.UpdateRoomMetadataRequest) *livekit.UpdateRoomMetadataRequest {
+	if req.Metadata == "" {
+		return req
+	}
+
+	clone := utils.CloneProto(req)
+
+	// replace with size of metadata to provide visibility on request size
+	clone.Metadata = fmt.Sprintf("__size: %d", len(clone.Metadata))
 
 	return clone
 }

@@ -22,7 +22,7 @@ import (
 	"github.com/livekit/protocol/utils"
 	"github.com/livekit/protocol/webhook"
 	"github.com/livekit/psrpc"
-	"github.com/pion/turn/v2"
+	"github.com/pion/turn/v4"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
@@ -38,7 +38,6 @@ import (
 func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*LivekitServer, error) {
 	limitConfig := getLimitConf(conf)
 	apiConfig := config.DefaultAPIConfig()
-	psrpcConfig := getPSRPCConfig(conf)
 	universalClient, err := createRedisClient(conf)
 	if err != nil {
 		return nil, err
@@ -50,18 +49,21 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	if err != nil {
 		return nil, err
 	}
+	psrpcConfig := getPSRPCConfig(conf)
 	clientParams := getPSRPCClientParams(psrpcConfig, messageBus)
+	roomConfig := getRoomConfig(conf)
+	roomManagerClient, err := routing.NewRoomManagerClient(clientParams, roomConfig)
+	if err != nil {
+		return nil, err
+	}
 	keepalivePubSub, err := rpc.NewKeepalivePubSub(clientParams)
 	if err != nil {
 		return nil, err
 	}
-	router := routing.CreateRouter(universalClient, currentNode, signalClient, keepalivePubSub)
+	nodeStatsConfig := getNodeStatsConfig(conf)
+	router := routing.CreateRouter(universalClient, currentNode, signalClient, roomManagerClient, keepalivePubSub, nodeStatsConfig)
 	objectStore := createStore(universalClient)
 	roomAllocator, err := NewRoomAllocator(conf, router, objectStore)
-	if err != nil {
-		return nil, err
-	}
-	client, err := agent.NewAgentClient(messageBus)
 	if err != nil {
 		return nil, err
 	}
@@ -96,33 +98,51 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	if err != nil {
 		return nil, err
 	}
-	roomService, err := NewRoomService(limitConfig, apiConfig, psrpcConfig, router, roomAllocator, objectStore, client, rtcEgressLauncher, topicFormatter, roomClient, participantClient)
+	roomService, err := NewRoomService(limitConfig, apiConfig, router, roomAllocator, objectStore, rtcEgressLauncher, topicFormatter, roomClient, participantClient)
 	if err != nil {
 		return nil, err
 	}
+	agentDispatchInternalClient, err := rpc.NewTypedAgentDispatchInternalClient(clientParams)
+	if err != nil {
+		return nil, err
+	}
+	agentDispatchService := NewAgentDispatchService(agentDispatchInternalClient, topicFormatter, roomAllocator, router)
 	egressService := NewEgressService(egressClient, rtcEgressLauncher, objectStore, ioInfoService, roomService)
 	ingressConfig := getIngressConfig(conf)
 	ingressClient, err := rpc.NewIngressClient(clientParams)
 	if err != nil {
 		return nil, err
 	}
-	ingressService := NewIngressService(ingressConfig, nodeID, messageBus, ingressClient, ingressStore, ioInfoService, roomService, telemetryService)
+	ingressService := NewIngressService(ingressConfig, nodeID, messageBus, ingressClient, ingressStore, ioInfoService, telemetryService)
 	sipConfig := getSIPConfig(conf)
 	sipClient, err := rpc.NewSIPClient(messageBus)
 	if err != nil {
 		return nil, err
 	}
 	sipService := NewSIPService(sipConfig, nodeID, messageBus, sipClient, sipStore, roomService, telemetryService)
-	rtcService := NewRTCService(conf, roomAllocator, objectStore, router, currentNode, client, telemetryService)
+	rtcService := NewRTCService(conf, roomAllocator, router, telemetryService)
+	rtcRestParticipantClient, err := rpc.NewTypedRTCRestParticipantClient(clientParams)
+	if err != nil {
+		return nil, err
+	}
+	serviceRTCRestService, err := NewRTCRestService(conf, router, roomAllocator, clientParams, topicFormatter, rtcRestParticipantClient)
+	if err != nil {
+		return nil, err
+	}
 	agentService, err := NewAgentService(conf, currentNode, messageBus, keyProvider)
 	if err != nil {
 		return nil, err
 	}
 	clientConfigurationManager := createClientConfiguration()
+	client, err := agent.NewAgentClient(messageBus)
+	if err != nil {
+		return nil, err
+	}
+	agentStore := getAgentStore(objectStore)
 	timedVersionGenerator := utils.NewDefaultTimedVersionGenerator()
 	turnAuthHandler := NewTURNAuthHandler(keyProvider)
 	forwardStats := createForwardStats(conf)
-	roomManager, err := NewLocalRoomManager(conf, objectStore, currentNode, router, telemetryService, clientConfigurationManager, client, rtcEgressLauncher, timedVersionGenerator, turnAuthHandler, messageBus, forwardStats)
+	roomManager, err := NewLocalRoomManager(conf, objectStore, currentNode, router, roomAllocator, telemetryService, clientConfigurationManager, client, agentStore, rtcEgressLauncher, timedVersionGenerator, turnAuthHandler, messageBus, forwardStats)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +155,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	if err != nil {
 		return nil, err
 	}
-	livekitServer, err := NewLivekitServer(conf, roomService, egressService, ingressService, sipService, ioInfoService, rtcService, agentService, keyProvider, router, roomManager, signalServer, server, currentNode)
+	livekitServer, err := NewLivekitServer(conf, roomService, agentDispatchService, egressService, ingressService, sipService, ioInfoService, rtcService, serviceRTCRestService, agentService, keyProvider, router, roomManager, signalServer, server, currentNode)
 	if err != nil {
 		return nil, err
 	}
@@ -156,18 +176,24 @@ func InitializeRouter(conf *config.Config, currentNode routing.LocalNode) (routi
 	}
 	psrpcConfig := getPSRPCConfig(conf)
 	clientParams := getPSRPCClientParams(psrpcConfig, messageBus)
+	roomConfig := getRoomConfig(conf)
+	roomManagerClient, err := routing.NewRoomManagerClient(clientParams, roomConfig)
+	if err != nil {
+		return nil, err
+	}
 	keepalivePubSub, err := rpc.NewKeepalivePubSub(clientParams)
 	if err != nil {
 		return nil, err
 	}
-	router := routing.CreateRouter(universalClient, currentNode, signalClient, keepalivePubSub)
+	nodeStatsConfig := getNodeStatsConfig(conf)
+	router := routing.CreateRouter(universalClient, currentNode, signalClient, roomManagerClient, keepalivePubSub, nodeStatsConfig)
 	return router, nil
 }
 
 // wire.go:
 
 func getNodeID(currentNode routing.LocalNode) livekit.NodeID {
-	return livekit.NodeID(currentNode.Id)
+	return currentNode.NodeID()
 }
 
 func createKeyProvider(conf *config.Config) (auth.KeyProvider, error) {
@@ -201,15 +227,13 @@ func createKeyProvider(conf *config.Config) (auth.KeyProvider, error) {
 
 func createWebhookNotifier(conf *config.Config, provider auth.KeyProvider) (webhook.QueuedNotifier, error) {
 	wc := conf.WebHook
-	if len(wc.URLs) == 0 {
-		return nil, nil
-	}
+
 	secret := provider.GetSecret(wc.APIKey)
-	if secret == "" {
+	if secret == "" && len(wc.URLs) > 0 {
 		return nil, ErrWebHookMissingAPIKey
 	}
 
-	return webhook.NewDefaultNotifier(wc.APIKey, secret, wc.URLs), nil
+	return webhook.NewDefaultNotifier(wc, provider)
 }
 
 func createRedisClient(conf *config.Config) (redis.UniversalClient, error) {
@@ -251,6 +275,17 @@ func getIngressStore(s ObjectStore) IngressStore {
 	}
 }
 
+func getAgentStore(s ObjectStore) AgentStore {
+	switch store := s.(type) {
+	case *RedisStore:
+		return store
+	case *LocalStore:
+		return store
+	default:
+		return nil
+	}
+}
+
 func getIngressConfig(conf *config.Config) *config.IngressConfig {
 	return &conf.Ingress
 }
@@ -276,6 +311,10 @@ func getLimitConf(config2 *config.Config) config.LimitConfig {
 	return config2.Limit
 }
 
+func getRoomConfig(config2 *config.Config) config.RoomConfig {
+	return config2.Room
+}
+
 func getSignalRelayConfig(config2 *config.Config) config.SignalRelayConfig {
 	return config2.SignalRelay
 }
@@ -297,4 +336,8 @@ func createForwardStats(conf *config.Config) *sfu.ForwardStats {
 
 func newInProcessTurnServer(conf *config.Config, authHandler turn.AuthHandler) (*turn.Server, error) {
 	return NewTurnServer(conf, authHandler, false)
+}
+
+func getNodeStatsConfig(config2 *config.Config) config.NodeStatsConfig {
+	return config2.NodeStats
 }

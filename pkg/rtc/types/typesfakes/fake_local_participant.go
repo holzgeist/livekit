@@ -15,7 +15,7 @@ import (
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/utils"
 	"github.com/pion/rtcp"
-	webrtc "github.com/pion/webrtc/v3"
+	webrtc "github.com/pion/webrtc/v4"
 )
 
 type FakeLocalParticipant struct {
@@ -30,34 +30,34 @@ type FakeLocalParticipant struct {
 	addTrackArgsForCall []struct {
 		arg1 *livekit.AddTrackRequest
 	}
-	AddTrackToSubscriberStub        func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
-	addTrackToSubscriberMutex       sync.RWMutex
-	addTrackToSubscriberArgsForCall []struct {
+	AddTrackLocalStub        func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
+	addTrackLocalMutex       sync.RWMutex
+	addTrackLocalArgsForCall []struct {
 		arg1 webrtc.TrackLocal
 		arg2 types.AddTrackParams
 	}
-	addTrackToSubscriberReturns struct {
+	addTrackLocalReturns struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}
-	addTrackToSubscriberReturnsOnCall map[int]struct {
+	addTrackLocalReturnsOnCall map[int]struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}
-	AddTransceiverFromTrackToSubscriberStub        func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
-	addTransceiverFromTrackToSubscriberMutex       sync.RWMutex
-	addTransceiverFromTrackToSubscriberArgsForCall []struct {
+	AddTransceiverFromTrackLocalStub        func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)
+	addTransceiverFromTrackLocalMutex       sync.RWMutex
+	addTransceiverFromTrackLocalArgsForCall []struct {
 		arg1 webrtc.TrackLocal
 		arg2 types.AddTrackParams
 	}
-	addTransceiverFromTrackToSubscriberReturns struct {
+	addTransceiverFromTrackLocalReturns struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}
-	addTransceiverFromTrackToSubscriberReturnsOnCall map[int]struct {
+	addTransceiverFromTrackLocalReturnsOnCall map[int]struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
@@ -68,6 +68,16 @@ type FakeLocalParticipant struct {
 		arg1 livekit.TrackID
 		arg2 *webrtc.RTPTransceiver
 		arg3 sfu.DownTrackState
+	}
+	CanPublishStub        func() bool
+	canPublishMutex       sync.RWMutex
+	canPublishArgsForCall []struct {
+	}
+	canPublishReturns struct {
+		result1 bool
+	}
+	canPublishReturnsOnCall map[int]struct {
+		result1 bool
 	}
 	CanPublishDataStub        func() bool
 	canPublishDataMutex       sync.RWMutex
@@ -109,6 +119,19 @@ type FakeLocalParticipant struct {
 	}
 	canSubscribeReturnsOnCall map[int]struct {
 		result1 bool
+	}
+	CheckMetadataLimitsStub        func(string, string, map[string]string) error
+	checkMetadataLimitsMutex       sync.RWMutex
+	checkMetadataLimitsArgsForCall []struct {
+		arg1 string
+		arg2 string
+		arg3 map[string]string
+	}
+	checkMetadataLimitsReturns struct {
+		result1 error
+	}
+	checkMetadataLimitsReturnsOnCall map[int]struct {
+		result1 error
 	}
 	ClaimGrantsStub        func() *auth.ClaimGrants
 	claimGrantsMutex       sync.RWMutex
@@ -188,6 +211,18 @@ type FakeLocalParticipant struct {
 	getAdaptiveStreamReturnsOnCall map[int]struct {
 		result1 bool
 	}
+	GetAnswerStub        func() (webrtc.SessionDescription, error)
+	getAnswerMutex       sync.RWMutex
+	getAnswerArgsForCall []struct {
+	}
+	getAnswerReturns struct {
+		result1 webrtc.SessionDescription
+		result2 error
+	}
+	getAnswerReturnsOnCall map[int]struct {
+		result1 webrtc.SessionDescription
+		result2 error
+	}
 	GetAudioLevelStub        func() (float64, bool)
 	getAudioLevelMutex       sync.RWMutex
 	getAudioLevelArgsForCall []struct {
@@ -253,15 +288,45 @@ type FakeLocalParticipant struct {
 	getConnectionQualityReturnsOnCall map[int]struct {
 		result1 *livekit.ConnectionQualityInfo
 	}
-	GetICEConnectionDetailsStub        func() []*types.ICEConnectionDetails
-	getICEConnectionDetailsMutex       sync.RWMutex
-	getICEConnectionDetailsArgsForCall []struct {
+	GetDisableSenderReportPassThroughStub        func() bool
+	getDisableSenderReportPassThroughMutex       sync.RWMutex
+	getDisableSenderReportPassThroughArgsForCall []struct {
 	}
-	getICEConnectionDetailsReturns struct {
-		result1 []*types.ICEConnectionDetails
+	getDisableSenderReportPassThroughReturns struct {
+		result1 bool
 	}
-	getICEConnectionDetailsReturnsOnCall map[int]struct {
-		result1 []*types.ICEConnectionDetails
+	getDisableSenderReportPassThroughReturnsOnCall map[int]struct {
+		result1 bool
+	}
+	GetEnabledPublishCodecsStub        func() []*livekit.Codec
+	getEnabledPublishCodecsMutex       sync.RWMutex
+	getEnabledPublishCodecsArgsForCall []struct {
+	}
+	getEnabledPublishCodecsReturns struct {
+		result1 []*livekit.Codec
+	}
+	getEnabledPublishCodecsReturnsOnCall map[int]struct {
+		result1 []*livekit.Codec
+	}
+	GetICEConfigStub        func() *livekit.ICEConfig
+	getICEConfigMutex       sync.RWMutex
+	getICEConfigArgsForCall []struct {
+	}
+	getICEConfigReturns struct {
+		result1 *livekit.ICEConfig
+	}
+	getICEConfigReturnsOnCall map[int]struct {
+		result1 *livekit.ICEConfig
+	}
+	GetICEConnectionInfoStub        func() []*types.ICEConnectionInfo
+	getICEConnectionInfoMutex       sync.RWMutex
+	getICEConnectionInfoArgsForCall []struct {
+	}
+	getICEConnectionInfoReturns struct {
+		result1 []*types.ICEConnectionInfo
+	}
+	getICEConnectionInfoReturnsOnCall map[int]struct {
+		result1 []*types.ICEConnectionInfo
 	}
 	GetLoggerStub        func() logger.Logger
 	getLoggerMutex       sync.RWMutex
@@ -272,6 +337,16 @@ type FakeLocalParticipant struct {
 	}
 	getLoggerReturnsOnCall map[int]struct {
 		result1 logger.Logger
+	}
+	GetLoggerResolverStub        func() logger.DeferredFieldResolver
+	getLoggerResolverMutex       sync.RWMutex
+	getLoggerResolverArgsForCall []struct {
+	}
+	getLoggerResolverReturns struct {
+		result1 logger.DeferredFieldResolver
+	}
+	getLoggerResolverReturnsOnCall map[int]struct {
+		result1 logger.DeferredFieldResolver
 	}
 	GetPacerStub        func() pacer.Pacer
 	getPacerMutex       sync.RWMutex
@@ -325,6 +400,18 @@ type FakeLocalParticipant struct {
 	getPublishedTracksReturnsOnCall map[int]struct {
 		result1 []types.MediaTrack
 	}
+	GetPublisherICESessionUfragStub        func() (string, error)
+	getPublisherICESessionUfragMutex       sync.RWMutex
+	getPublisherICESessionUfragArgsForCall []struct {
+	}
+	getPublisherICESessionUfragReturns struct {
+		result1 string
+		result2 error
+	}
+	getPublisherICESessionUfragReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
 	GetSubscribedParticipantsStub        func() []livekit.ParticipantID
 	getSubscribedParticipantsMutex       sync.RWMutex
 	getSubscribedParticipantsArgsForCall []struct {
@@ -360,10 +447,52 @@ type FakeLocalParticipant struct {
 	handleAnswerArgsForCall []struct {
 		arg1 webrtc.SessionDescription
 	}
-	HandleOfferStub        func(webrtc.SessionDescription)
+	HandleICERestartSDPFragmentStub        func(string) (string, error)
+	handleICERestartSDPFragmentMutex       sync.RWMutex
+	handleICERestartSDPFragmentArgsForCall []struct {
+		arg1 string
+	}
+	handleICERestartSDPFragmentReturns struct {
+		result1 string
+		result2 error
+	}
+	handleICERestartSDPFragmentReturnsOnCall map[int]struct {
+		result1 string
+		result2 error
+	}
+	HandleICETrickleSDPFragmentStub        func(string) error
+	handleICETrickleSDPFragmentMutex       sync.RWMutex
+	handleICETrickleSDPFragmentArgsForCall []struct {
+		arg1 string
+	}
+	handleICETrickleSDPFragmentReturns struct {
+		result1 error
+	}
+	handleICETrickleSDPFragmentReturnsOnCall map[int]struct {
+		result1 error
+	}
+	HandleMetricsStub        func(livekit.ParticipantID, *livekit.MetricsBatch) error
+	handleMetricsMutex       sync.RWMutex
+	handleMetricsArgsForCall []struct {
+		arg1 livekit.ParticipantID
+		arg2 *livekit.MetricsBatch
+	}
+	handleMetricsReturns struct {
+		result1 error
+	}
+	handleMetricsReturnsOnCall map[int]struct {
+		result1 error
+	}
+	HandleOfferStub        func(webrtc.SessionDescription) error
 	handleOfferMutex       sync.RWMutex
 	handleOfferArgsForCall []struct {
 		arg1 webrtc.SessionDescription
+	}
+	handleOfferReturns struct {
+		result1 error
+	}
+	handleOfferReturnsOnCall map[int]struct {
+		result1 error
 	}
 	HandleReceiverReportStub        func(*sfu.DownTrack, *rtcp.ReceiverReport)
 	handleReceiverReportMutex       sync.RWMutex
@@ -444,6 +573,16 @@ type FakeLocalParticipant struct {
 	identityReturnsOnCall map[int]struct {
 		result1 livekit.ParticipantIdentity
 	}
+	IsAgentStub        func() bool
+	isAgentMutex       sync.RWMutex
+	isAgentArgsForCall []struct {
+	}
+	isAgentReturns struct {
+		result1 bool
+	}
+	isAgentReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	IsClosedStub        func() bool
 	isClosedMutex       sync.RWMutex
 	isClosedArgsForCall []struct {
@@ -504,6 +643,16 @@ type FakeLocalParticipant struct {
 	isReadyReturnsOnCall map[int]struct {
 		result1 bool
 	}
+	IsReconnectStub        func() bool
+	isReconnectMutex       sync.RWMutex
+	isReconnectArgsForCall []struct {
+	}
+	isReconnectReturns struct {
+		result1 bool
+	}
+	isReconnectReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	IsRecorderStub        func() bool
 	isRecorderMutex       sync.RWMutex
 	isRecorderArgsForCall []struct {
@@ -523,6 +672,18 @@ type FakeLocalParticipant struct {
 		result1 bool
 	}
 	isSubscribedToReturnsOnCall map[int]struct {
+		result1 bool
+	}
+	IsTrackNameSubscribedStub        func(livekit.ParticipantIdentity, string) bool
+	isTrackNameSubscribedMutex       sync.RWMutex
+	isTrackNameSubscribedArgsForCall []struct {
+		arg1 livekit.ParticipantIdentity
+		arg2 string
+	}
+	isTrackNameSubscribedReturns struct {
+		result1 bool
+	}
+	isTrackNameSubscribedReturnsOnCall map[int]struct {
 		result1 bool
 	}
 	IssueFullReconnectStub        func(types.ParticipantCloseReason)
@@ -562,6 +723,11 @@ type FakeLocalParticipant struct {
 	migrateStateReturnsOnCall map[int]struct {
 		result1 types.MigrateState
 	}
+	MoveToRoomStub        func(types.MoveToRoomParams)
+	moveToRoomMutex       sync.RWMutex
+	moveToRoomArgsForCall []struct {
+		arg1 types.MoveToRoomParams
+	}
 	NegotiateStub        func(bool)
 	negotiateMutex       sync.RWMutex
 	negotiateArgsForCall []struct {
@@ -581,6 +747,11 @@ type FakeLocalParticipant struct {
 	onCloseArgsForCall []struct {
 		arg1 func(types.LocalParticipant)
 	}
+	OnDataMessageStub        func(func(types.LocalParticipant, []byte))
+	onDataMessageMutex       sync.RWMutex
+	onDataMessageArgsForCall []struct {
+		arg1 func(types.LocalParticipant, []byte)
+	}
 	OnDataPacketStub        func(func(types.LocalParticipant, livekit.DataPacket_Kind, *livekit.DataPacket))
 	onDataPacketMutex       sync.RWMutex
 	onDataPacketArgsForCall []struct {
@@ -590,6 +761,11 @@ type FakeLocalParticipant struct {
 	onICEConfigChangedMutex       sync.RWMutex
 	onICEConfigChangedArgsForCall []struct {
 		arg1 func(participant types.LocalParticipant, iceConfig *livekit.ICEConfig)
+	}
+	OnMetricsStub        func(func(types.Participant, *livekit.DataPacket))
+	onMetricsMutex       sync.RWMutex
+	onMetricsArgsForCall []struct {
+		arg1 func(types.Participant, *livekit.DataPacket)
 	}
 	OnMigrateStateChangeStub        func(func(p types.LocalParticipant, migrateState types.MigrateState))
 	onMigrateStateChangeMutex       sync.RWMutex
@@ -601,15 +777,20 @@ type FakeLocalParticipant struct {
 	onParticipantUpdateArgsForCall []struct {
 		arg1 func(types.LocalParticipant)
 	}
-	OnStateChangeStub        func(func(p types.LocalParticipant, state livekit.ParticipantInfo_State))
+	OnStateChangeStub        func(func(p types.LocalParticipant))
 	onStateChangeMutex       sync.RWMutex
 	onStateChangeArgsForCall []struct {
-		arg1 func(p types.LocalParticipant, state livekit.ParticipantInfo_State)
+		arg1 func(p types.LocalParticipant)
 	}
 	OnSubscribeStatusChangedStub        func(func(publisherID livekit.ParticipantID, subscribed bool))
 	onSubscribeStatusChangedMutex       sync.RWMutex
 	onSubscribeStatusChangedArgsForCall []struct {
 		arg1 func(publisherID livekit.ParticipantID, subscribed bool)
+	}
+	OnSubscriberReadyStub        func(func(types.LocalParticipant))
+	onSubscriberReadyMutex       sync.RWMutex
+	onSubscriberReadyArgsForCall []struct {
+		arg1 func(types.LocalParticipant)
 	}
 	OnTrackPublishedStub        func(func(types.LocalParticipant, types.MediaTrack))
 	onTrackPublishedMutex       sync.RWMutex
@@ -643,15 +824,15 @@ type FakeLocalParticipant struct {
 		arg2 bool
 		arg3 bool
 	}
-	RemoveTrackFromSubscriberStub        func(*webrtc.RTPSender) error
-	removeTrackFromSubscriberMutex       sync.RWMutex
-	removeTrackFromSubscriberArgsForCall []struct {
+	RemoveTrackLocalStub        func(*webrtc.RTPSender) error
+	removeTrackLocalMutex       sync.RWMutex
+	removeTrackLocalArgsForCall []struct {
 		arg1 *webrtc.RTPSender
 	}
-	removeTrackFromSubscriberReturns struct {
+	removeTrackLocalReturns struct {
 		result1 error
 	}
-	removeTrackFromSubscriberReturnsOnCall map[int]struct {
+	removeTrackLocalReturnsOnCall map[int]struct {
 		result1 error
 	}
 	SendConnectionQualityUpdateStub        func(*livekit.ConnectionQualityUpdate) error
@@ -665,16 +846,29 @@ type FakeLocalParticipant struct {
 	sendConnectionQualityUpdateReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SendDataPacketStub        func(livekit.DataPacket_Kind, []byte) error
-	sendDataPacketMutex       sync.RWMutex
-	sendDataPacketArgsForCall []struct {
+	SendDataMessageStub        func(livekit.DataPacket_Kind, []byte) error
+	sendDataMessageMutex       sync.RWMutex
+	sendDataMessageArgsForCall []struct {
 		arg1 livekit.DataPacket_Kind
 		arg2 []byte
 	}
-	sendDataPacketReturns struct {
+	sendDataMessageReturns struct {
 		result1 error
 	}
-	sendDataPacketReturnsOnCall map[int]struct {
+	sendDataMessageReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SendDataMessageUnlabeledStub        func([]byte, bool, livekit.ParticipantIdentity) error
+	sendDataMessageUnlabeledMutex       sync.RWMutex
+	sendDataMessageUnlabeledArgsForCall []struct {
+		arg1 []byte
+		arg2 bool
+		arg3 livekit.ParticipantIdentity
+	}
+	sendDataMessageUnlabeledReturns struct {
+		result1 error
+	}
+	sendDataMessageUnlabeledReturnsOnCall map[int]struct {
 		result1 error
 	}
 	SendJoinResponseStub        func(*livekit.JoinResponse) error
@@ -710,6 +904,28 @@ type FakeLocalParticipant struct {
 	sendRefreshTokenReturnsOnCall map[int]struct {
 		result1 error
 	}
+	SendRequestResponseStub        func(*livekit.RequestResponse) error
+	sendRequestResponseMutex       sync.RWMutex
+	sendRequestResponseArgsForCall []struct {
+		arg1 *livekit.RequestResponse
+	}
+	sendRequestResponseReturns struct {
+		result1 error
+	}
+	sendRequestResponseReturnsOnCall map[int]struct {
+		result1 error
+	}
+	SendRoomMovedResponseStub        func(*livekit.RoomMovedResponse) error
+	sendRoomMovedResponseMutex       sync.RWMutex
+	sendRoomMovedResponseArgsForCall []struct {
+		arg1 *livekit.RoomMovedResponse
+	}
+	sendRoomMovedResponseReturns struct {
+		result1 error
+	}
+	sendRoomMovedResponseReturnsOnCall map[int]struct {
+		result1 error
+	}
 	SendRoomUpdateStub        func(*livekit.Room) error
 	sendRoomUpdateMutex       sync.RWMutex
 	sendRoomUpdateArgsForCall []struct {
@@ -733,16 +949,10 @@ type FakeLocalParticipant struct {
 	sendSpeakerUpdateReturnsOnCall map[int]struct {
 		result1 error
 	}
-	SetAttributesStub        func(map[string]string) error
+	SetAttributesStub        func(map[string]string)
 	setAttributesMutex       sync.RWMutex
 	setAttributesArgsForCall []struct {
 		arg1 map[string]string
-	}
-	setAttributesReturns struct {
-		result1 error
-	}
-	setAttributesReturnsOnCall map[int]struct {
-		result1 error
 	}
 	SetICEConfigStub        func(*livekit.ICEConfig)
 	setICEConfigMutex       sync.RWMutex
@@ -826,6 +1036,16 @@ type FakeLocalParticipant struct {
 	stateReturnsOnCall map[int]struct {
 		result1 livekit.ParticipantInfo_State
 	}
+	StopAndGetSubscribedTracksForwarderStateStub        func() map[livekit.TrackID]*livekit.RTPForwarderState
+	stopAndGetSubscribedTracksForwarderStateMutex       sync.RWMutex
+	stopAndGetSubscribedTracksForwarderStateArgsForCall []struct {
+	}
+	stopAndGetSubscribedTracksForwarderStateReturns struct {
+		result1 map[livekit.TrackID]*livekit.RTPForwarderState
+	}
+	stopAndGetSubscribedTracksForwarderStateReturnsOnCall map[int]struct {
+		result1 map[livekit.TrackID]*livekit.RTPForwarderState
+	}
 	SubscribeToTrackStub        func(livekit.TrackID)
 	subscribeToTrackMutex       sync.RWMutex
 	subscribeToTrackArgsForCall []struct {
@@ -859,6 +1079,26 @@ type FakeLocalParticipant struct {
 		arg1 livekit.ParticipantID
 		arg2 livekit.TrackID
 		arg3 bool
+	}
+	SupportsCodecChangeStub        func() bool
+	supportsCodecChangeMutex       sync.RWMutex
+	supportsCodecChangeArgsForCall []struct {
+	}
+	supportsCodecChangeReturns struct {
+		result1 bool
+	}
+	supportsCodecChangeReturnsOnCall map[int]struct {
+		result1 bool
+	}
+	SupportsMovingStub        func() bool
+	supportsMovingMutex       sync.RWMutex
+	supportsMovingArgsForCall []struct {
+	}
+	supportsMovingReturns struct {
+		result1 bool
+	}
+	supportsMovingReturnsOnCall map[int]struct {
+		result1 bool
 	}
 	SupportsSyncStreamIDStub        func() bool
 	supportsSyncStreamIDMutex       sync.RWMutex
@@ -993,11 +1233,31 @@ type FakeLocalParticipant struct {
 	updateVideoTrackReturnsOnCall map[int]struct {
 		result1 error
 	}
+	VerifyStub        func() bool
+	verifyMutex       sync.RWMutex
+	verifyArgsForCall []struct {
+	}
+	verifyReturns struct {
+		result1 bool
+	}
+	verifyReturnsOnCall map[int]struct {
+		result1 bool
+	}
 	VerifySubscribeParticipantInfoStub        func(livekit.ParticipantID, uint32)
 	verifySubscribeParticipantInfoMutex       sync.RWMutex
 	verifySubscribeParticipantInfoArgsForCall []struct {
 		arg1 livekit.ParticipantID
 		arg2 uint32
+	}
+	VersionStub        func() utils.TimedVersion
+	versionMutex       sync.RWMutex
+	versionArgsForCall []struct {
+	}
+	versionReturns struct {
+		result1 utils.TimedVersion
+	}
+	versionReturnsOnCall map[int]struct {
+		result1 utils.TimedVersion
 	}
 	WaitUntilSubscribedStub        func(time.Duration) error
 	waitUntilSubscribedMutex       sync.RWMutex
@@ -1090,17 +1350,17 @@ func (fake *FakeLocalParticipant) AddTrackArgsForCall(i int) *livekit.AddTrackRe
 	return argsForCall.arg1
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriber(arg1 webrtc.TrackLocal, arg2 types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
-	fake.addTrackToSubscriberMutex.Lock()
-	ret, specificReturn := fake.addTrackToSubscriberReturnsOnCall[len(fake.addTrackToSubscriberArgsForCall)]
-	fake.addTrackToSubscriberArgsForCall = append(fake.addTrackToSubscriberArgsForCall, struct {
+func (fake *FakeLocalParticipant) AddTrackLocal(arg1 webrtc.TrackLocal, arg2 types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
+	fake.addTrackLocalMutex.Lock()
+	ret, specificReturn := fake.addTrackLocalReturnsOnCall[len(fake.addTrackLocalArgsForCall)]
+	fake.addTrackLocalArgsForCall = append(fake.addTrackLocalArgsForCall, struct {
 		arg1 webrtc.TrackLocal
 		arg2 types.AddTrackParams
 	}{arg1, arg2})
-	stub := fake.AddTrackToSubscriberStub
-	fakeReturns := fake.addTrackToSubscriberReturns
-	fake.recordInvocation("AddTrackToSubscriber", []interface{}{arg1, arg2})
-	fake.addTrackToSubscriberMutex.Unlock()
+	stub := fake.AddTrackLocalStub
+	fakeReturns := fake.addTrackLocalReturns
+	fake.recordInvocation("AddTrackLocal", []interface{}{arg1, arg2})
+	fake.addTrackLocalMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -1110,65 +1370,65 @@ func (fake *FakeLocalParticipant) AddTrackToSubscriber(arg1 webrtc.TrackLocal, a
 	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriberCallCount() int {
-	fake.addTrackToSubscriberMutex.RLock()
-	defer fake.addTrackToSubscriberMutex.RUnlock()
-	return len(fake.addTrackToSubscriberArgsForCall)
+func (fake *FakeLocalParticipant) AddTrackLocalCallCount() int {
+	fake.addTrackLocalMutex.RLock()
+	defer fake.addTrackLocalMutex.RUnlock()
+	return len(fake.addTrackLocalArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriberCalls(stub func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)) {
-	fake.addTrackToSubscriberMutex.Lock()
-	defer fake.addTrackToSubscriberMutex.Unlock()
-	fake.AddTrackToSubscriberStub = stub
+func (fake *FakeLocalParticipant) AddTrackLocalCalls(stub func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)) {
+	fake.addTrackLocalMutex.Lock()
+	defer fake.addTrackLocalMutex.Unlock()
+	fake.AddTrackLocalStub = stub
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriberArgsForCall(i int) (webrtc.TrackLocal, types.AddTrackParams) {
-	fake.addTrackToSubscriberMutex.RLock()
-	defer fake.addTrackToSubscriberMutex.RUnlock()
-	argsForCall := fake.addTrackToSubscriberArgsForCall[i]
+func (fake *FakeLocalParticipant) AddTrackLocalArgsForCall(i int) (webrtc.TrackLocal, types.AddTrackParams) {
+	fake.addTrackLocalMutex.RLock()
+	defer fake.addTrackLocalMutex.RUnlock()
+	argsForCall := fake.addTrackLocalArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriberReturns(result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
-	fake.addTrackToSubscriberMutex.Lock()
-	defer fake.addTrackToSubscriberMutex.Unlock()
-	fake.AddTrackToSubscriberStub = nil
-	fake.addTrackToSubscriberReturns = struct {
+func (fake *FakeLocalParticipant) AddTrackLocalReturns(result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
+	fake.addTrackLocalMutex.Lock()
+	defer fake.addTrackLocalMutex.Unlock()
+	fake.AddTrackLocalStub = nil
+	fake.addTrackLocalReturns = struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}{result1, result2, result3}
 }
 
-func (fake *FakeLocalParticipant) AddTrackToSubscriberReturnsOnCall(i int, result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
-	fake.addTrackToSubscriberMutex.Lock()
-	defer fake.addTrackToSubscriberMutex.Unlock()
-	fake.AddTrackToSubscriberStub = nil
-	if fake.addTrackToSubscriberReturnsOnCall == nil {
-		fake.addTrackToSubscriberReturnsOnCall = make(map[int]struct {
+func (fake *FakeLocalParticipant) AddTrackLocalReturnsOnCall(i int, result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
+	fake.addTrackLocalMutex.Lock()
+	defer fake.addTrackLocalMutex.Unlock()
+	fake.AddTrackLocalStub = nil
+	if fake.addTrackLocalReturnsOnCall == nil {
+		fake.addTrackLocalReturnsOnCall = make(map[int]struct {
 			result1 *webrtc.RTPSender
 			result2 *webrtc.RTPTransceiver
 			result3 error
 		})
 	}
-	fake.addTrackToSubscriberReturnsOnCall[i] = struct {
+	fake.addTrackLocalReturnsOnCall[i] = struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}{result1, result2, result3}
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriber(arg1 webrtc.TrackLocal, arg2 types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
-	fake.addTransceiverFromTrackToSubscriberMutex.Lock()
-	ret, specificReturn := fake.addTransceiverFromTrackToSubscriberReturnsOnCall[len(fake.addTransceiverFromTrackToSubscriberArgsForCall)]
-	fake.addTransceiverFromTrackToSubscriberArgsForCall = append(fake.addTransceiverFromTrackToSubscriberArgsForCall, struct {
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocal(arg1 webrtc.TrackLocal, arg2 types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error) {
+	fake.addTransceiverFromTrackLocalMutex.Lock()
+	ret, specificReturn := fake.addTransceiverFromTrackLocalReturnsOnCall[len(fake.addTransceiverFromTrackLocalArgsForCall)]
+	fake.addTransceiverFromTrackLocalArgsForCall = append(fake.addTransceiverFromTrackLocalArgsForCall, struct {
 		arg1 webrtc.TrackLocal
 		arg2 types.AddTrackParams
 	}{arg1, arg2})
-	stub := fake.AddTransceiverFromTrackToSubscriberStub
-	fakeReturns := fake.addTransceiverFromTrackToSubscriberReturns
-	fake.recordInvocation("AddTransceiverFromTrackToSubscriber", []interface{}{arg1, arg2})
-	fake.addTransceiverFromTrackToSubscriberMutex.Unlock()
+	stub := fake.AddTransceiverFromTrackLocalStub
+	fakeReturns := fake.addTransceiverFromTrackLocalReturns
+	fake.recordInvocation("AddTransceiverFromTrackLocal", []interface{}{arg1, arg2})
+	fake.addTransceiverFromTrackLocalMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -1178,48 +1438,48 @@ func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriber(arg1 webrt
 	return fakeReturns.result1, fakeReturns.result2, fakeReturns.result3
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriberCallCount() int {
-	fake.addTransceiverFromTrackToSubscriberMutex.RLock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.RUnlock()
-	return len(fake.addTransceiverFromTrackToSubscriberArgsForCall)
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocalCallCount() int {
+	fake.addTransceiverFromTrackLocalMutex.RLock()
+	defer fake.addTransceiverFromTrackLocalMutex.RUnlock()
+	return len(fake.addTransceiverFromTrackLocalArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriberCalls(stub func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)) {
-	fake.addTransceiverFromTrackToSubscriberMutex.Lock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.Unlock()
-	fake.AddTransceiverFromTrackToSubscriberStub = stub
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocalCalls(stub func(webrtc.TrackLocal, types.AddTrackParams) (*webrtc.RTPSender, *webrtc.RTPTransceiver, error)) {
+	fake.addTransceiverFromTrackLocalMutex.Lock()
+	defer fake.addTransceiverFromTrackLocalMutex.Unlock()
+	fake.AddTransceiverFromTrackLocalStub = stub
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriberArgsForCall(i int) (webrtc.TrackLocal, types.AddTrackParams) {
-	fake.addTransceiverFromTrackToSubscriberMutex.RLock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.RUnlock()
-	argsForCall := fake.addTransceiverFromTrackToSubscriberArgsForCall[i]
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocalArgsForCall(i int) (webrtc.TrackLocal, types.AddTrackParams) {
+	fake.addTransceiverFromTrackLocalMutex.RLock()
+	defer fake.addTransceiverFromTrackLocalMutex.RUnlock()
+	argsForCall := fake.addTransceiverFromTrackLocalArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriberReturns(result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
-	fake.addTransceiverFromTrackToSubscriberMutex.Lock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.Unlock()
-	fake.AddTransceiverFromTrackToSubscriberStub = nil
-	fake.addTransceiverFromTrackToSubscriberReturns = struct {
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocalReturns(result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
+	fake.addTransceiverFromTrackLocalMutex.Lock()
+	defer fake.addTransceiverFromTrackLocalMutex.Unlock()
+	fake.AddTransceiverFromTrackLocalStub = nil
+	fake.addTransceiverFromTrackLocalReturns = struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
 	}{result1, result2, result3}
 }
 
-func (fake *FakeLocalParticipant) AddTransceiverFromTrackToSubscriberReturnsOnCall(i int, result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
-	fake.addTransceiverFromTrackToSubscriberMutex.Lock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.Unlock()
-	fake.AddTransceiverFromTrackToSubscriberStub = nil
-	if fake.addTransceiverFromTrackToSubscriberReturnsOnCall == nil {
-		fake.addTransceiverFromTrackToSubscriberReturnsOnCall = make(map[int]struct {
+func (fake *FakeLocalParticipant) AddTransceiverFromTrackLocalReturnsOnCall(i int, result1 *webrtc.RTPSender, result2 *webrtc.RTPTransceiver, result3 error) {
+	fake.addTransceiverFromTrackLocalMutex.Lock()
+	defer fake.addTransceiverFromTrackLocalMutex.Unlock()
+	fake.AddTransceiverFromTrackLocalStub = nil
+	if fake.addTransceiverFromTrackLocalReturnsOnCall == nil {
+		fake.addTransceiverFromTrackLocalReturnsOnCall = make(map[int]struct {
 			result1 *webrtc.RTPSender
 			result2 *webrtc.RTPTransceiver
 			result3 error
 		})
 	}
-	fake.addTransceiverFromTrackToSubscriberReturnsOnCall[i] = struct {
+	fake.addTransceiverFromTrackLocalReturnsOnCall[i] = struct {
 		result1 *webrtc.RTPSender
 		result2 *webrtc.RTPTransceiver
 		result3 error
@@ -1258,6 +1518,59 @@ func (fake *FakeLocalParticipant) CacheDownTrackArgsForCall(i int) (livekit.Trac
 	defer fake.cacheDownTrackMutex.RUnlock()
 	argsForCall := fake.cacheDownTrackArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeLocalParticipant) CanPublish() bool {
+	fake.canPublishMutex.Lock()
+	ret, specificReturn := fake.canPublishReturnsOnCall[len(fake.canPublishArgsForCall)]
+	fake.canPublishArgsForCall = append(fake.canPublishArgsForCall, struct {
+	}{})
+	stub := fake.CanPublishStub
+	fakeReturns := fake.canPublishReturns
+	fake.recordInvocation("CanPublish", []interface{}{})
+	fake.canPublishMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) CanPublishCallCount() int {
+	fake.canPublishMutex.RLock()
+	defer fake.canPublishMutex.RUnlock()
+	return len(fake.canPublishArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) CanPublishCalls(stub func() bool) {
+	fake.canPublishMutex.Lock()
+	defer fake.canPublishMutex.Unlock()
+	fake.CanPublishStub = stub
+}
+
+func (fake *FakeLocalParticipant) CanPublishReturns(result1 bool) {
+	fake.canPublishMutex.Lock()
+	defer fake.canPublishMutex.Unlock()
+	fake.CanPublishStub = nil
+	fake.canPublishReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) CanPublishReturnsOnCall(i int, result1 bool) {
+	fake.canPublishMutex.Lock()
+	defer fake.canPublishMutex.Unlock()
+	fake.CanPublishStub = nil
+	if fake.canPublishReturnsOnCall == nil {
+		fake.canPublishReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.canPublishReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
 }
 
 func (fake *FakeLocalParticipant) CanPublishData() bool {
@@ -1477,6 +1790,69 @@ func (fake *FakeLocalParticipant) CanSubscribeReturnsOnCall(i int, result1 bool)
 	}
 	fake.canSubscribeReturnsOnCall[i] = struct {
 		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimits(arg1 string, arg2 string, arg3 map[string]string) error {
+	fake.checkMetadataLimitsMutex.Lock()
+	ret, specificReturn := fake.checkMetadataLimitsReturnsOnCall[len(fake.checkMetadataLimitsArgsForCall)]
+	fake.checkMetadataLimitsArgsForCall = append(fake.checkMetadataLimitsArgsForCall, struct {
+		arg1 string
+		arg2 string
+		arg3 map[string]string
+	}{arg1, arg2, arg3})
+	stub := fake.CheckMetadataLimitsStub
+	fakeReturns := fake.checkMetadataLimitsReturns
+	fake.recordInvocation("CheckMetadataLimits", []interface{}{arg1, arg2, arg3})
+	fake.checkMetadataLimitsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimitsCallCount() int {
+	fake.checkMetadataLimitsMutex.RLock()
+	defer fake.checkMetadataLimitsMutex.RUnlock()
+	return len(fake.checkMetadataLimitsArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimitsCalls(stub func(string, string, map[string]string) error) {
+	fake.checkMetadataLimitsMutex.Lock()
+	defer fake.checkMetadataLimitsMutex.Unlock()
+	fake.CheckMetadataLimitsStub = stub
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimitsArgsForCall(i int) (string, string, map[string]string) {
+	fake.checkMetadataLimitsMutex.RLock()
+	defer fake.checkMetadataLimitsMutex.RUnlock()
+	argsForCall := fake.checkMetadataLimitsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimitsReturns(result1 error) {
+	fake.checkMetadataLimitsMutex.Lock()
+	defer fake.checkMetadataLimitsMutex.Unlock()
+	fake.CheckMetadataLimitsStub = nil
+	fake.checkMetadataLimitsReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) CheckMetadataLimitsReturnsOnCall(i int, result1 error) {
+	fake.checkMetadataLimitsMutex.Lock()
+	defer fake.checkMetadataLimitsMutex.Unlock()
+	fake.CheckMetadataLimitsStub = nil
+	if fake.checkMetadataLimitsReturnsOnCall == nil {
+		fake.checkMetadataLimitsReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.checkMetadataLimitsReturnsOnCall[i] = struct {
+		result1 error
 	}{result1}
 }
 
@@ -1893,6 +2269,62 @@ func (fake *FakeLocalParticipant) GetAdaptiveStreamReturnsOnCall(i int, result1 
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) GetAnswer() (webrtc.SessionDescription, error) {
+	fake.getAnswerMutex.Lock()
+	ret, specificReturn := fake.getAnswerReturnsOnCall[len(fake.getAnswerArgsForCall)]
+	fake.getAnswerArgsForCall = append(fake.getAnswerArgsForCall, struct {
+	}{})
+	stub := fake.GetAnswerStub
+	fakeReturns := fake.getAnswerReturns
+	fake.recordInvocation("GetAnswer", []interface{}{})
+	fake.getAnswerMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeLocalParticipant) GetAnswerCallCount() int {
+	fake.getAnswerMutex.RLock()
+	defer fake.getAnswerMutex.RUnlock()
+	return len(fake.getAnswerArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetAnswerCalls(stub func() (webrtc.SessionDescription, error)) {
+	fake.getAnswerMutex.Lock()
+	defer fake.getAnswerMutex.Unlock()
+	fake.GetAnswerStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetAnswerReturns(result1 webrtc.SessionDescription, result2 error) {
+	fake.getAnswerMutex.Lock()
+	defer fake.getAnswerMutex.Unlock()
+	fake.GetAnswerStub = nil
+	fake.getAnswerReturns = struct {
+		result1 webrtc.SessionDescription
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeLocalParticipant) GetAnswerReturnsOnCall(i int, result1 webrtc.SessionDescription, result2 error) {
+	fake.getAnswerMutex.Lock()
+	defer fake.getAnswerMutex.Unlock()
+	fake.GetAnswerStub = nil
+	if fake.getAnswerReturnsOnCall == nil {
+		fake.getAnswerReturnsOnCall = make(map[int]struct {
+			result1 webrtc.SessionDescription
+			result2 error
+		})
+	}
+	fake.getAnswerReturnsOnCall[i] = struct {
+		result1 webrtc.SessionDescription
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeLocalParticipant) GetAudioLevel() (float64, bool) {
 	fake.getAudioLevelMutex.Lock()
 	ret, specificReturn := fake.getAudioLevelReturnsOnCall[len(fake.getAudioLevelArgsForCall)]
@@ -2225,15 +2657,15 @@ func (fake *FakeLocalParticipant) GetConnectionQualityReturnsOnCall(i int, resul
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) GetICEConnectionDetails() []*types.ICEConnectionDetails {
-	fake.getICEConnectionDetailsMutex.Lock()
-	ret, specificReturn := fake.getICEConnectionDetailsReturnsOnCall[len(fake.getICEConnectionDetailsArgsForCall)]
-	fake.getICEConnectionDetailsArgsForCall = append(fake.getICEConnectionDetailsArgsForCall, struct {
+func (fake *FakeLocalParticipant) GetDisableSenderReportPassThrough() bool {
+	fake.getDisableSenderReportPassThroughMutex.Lock()
+	ret, specificReturn := fake.getDisableSenderReportPassThroughReturnsOnCall[len(fake.getDisableSenderReportPassThroughArgsForCall)]
+	fake.getDisableSenderReportPassThroughArgsForCall = append(fake.getDisableSenderReportPassThroughArgsForCall, struct {
 	}{})
-	stub := fake.GetICEConnectionDetailsStub
-	fakeReturns := fake.getICEConnectionDetailsReturns
-	fake.recordInvocation("GetICEConnectionDetails", []interface{}{})
-	fake.getICEConnectionDetailsMutex.Unlock()
+	stub := fake.GetDisableSenderReportPassThroughStub
+	fakeReturns := fake.getDisableSenderReportPassThroughReturns
+	fake.recordInvocation("GetDisableSenderReportPassThrough", []interface{}{})
+	fake.getDisableSenderReportPassThroughMutex.Unlock()
 	if stub != nil {
 		return stub()
 	}
@@ -2243,38 +2675,197 @@ func (fake *FakeLocalParticipant) GetICEConnectionDetails() []*types.ICEConnecti
 	return fakeReturns.result1
 }
 
-func (fake *FakeLocalParticipant) GetICEConnectionDetailsCallCount() int {
-	fake.getICEConnectionDetailsMutex.RLock()
-	defer fake.getICEConnectionDetailsMutex.RUnlock()
-	return len(fake.getICEConnectionDetailsArgsForCall)
+func (fake *FakeLocalParticipant) GetDisableSenderReportPassThroughCallCount() int {
+	fake.getDisableSenderReportPassThroughMutex.RLock()
+	defer fake.getDisableSenderReportPassThroughMutex.RUnlock()
+	return len(fake.getDisableSenderReportPassThroughArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) GetICEConnectionDetailsCalls(stub func() []*types.ICEConnectionDetails) {
-	fake.getICEConnectionDetailsMutex.Lock()
-	defer fake.getICEConnectionDetailsMutex.Unlock()
-	fake.GetICEConnectionDetailsStub = stub
+func (fake *FakeLocalParticipant) GetDisableSenderReportPassThroughCalls(stub func() bool) {
+	fake.getDisableSenderReportPassThroughMutex.Lock()
+	defer fake.getDisableSenderReportPassThroughMutex.Unlock()
+	fake.GetDisableSenderReportPassThroughStub = stub
 }
 
-func (fake *FakeLocalParticipant) GetICEConnectionDetailsReturns(result1 []*types.ICEConnectionDetails) {
-	fake.getICEConnectionDetailsMutex.Lock()
-	defer fake.getICEConnectionDetailsMutex.Unlock()
-	fake.GetICEConnectionDetailsStub = nil
-	fake.getICEConnectionDetailsReturns = struct {
-		result1 []*types.ICEConnectionDetails
+func (fake *FakeLocalParticipant) GetDisableSenderReportPassThroughReturns(result1 bool) {
+	fake.getDisableSenderReportPassThroughMutex.Lock()
+	defer fake.getDisableSenderReportPassThroughMutex.Unlock()
+	fake.GetDisableSenderReportPassThroughStub = nil
+	fake.getDisableSenderReportPassThroughReturns = struct {
+		result1 bool
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) GetICEConnectionDetailsReturnsOnCall(i int, result1 []*types.ICEConnectionDetails) {
-	fake.getICEConnectionDetailsMutex.Lock()
-	defer fake.getICEConnectionDetailsMutex.Unlock()
-	fake.GetICEConnectionDetailsStub = nil
-	if fake.getICEConnectionDetailsReturnsOnCall == nil {
-		fake.getICEConnectionDetailsReturnsOnCall = make(map[int]struct {
-			result1 []*types.ICEConnectionDetails
+func (fake *FakeLocalParticipant) GetDisableSenderReportPassThroughReturnsOnCall(i int, result1 bool) {
+	fake.getDisableSenderReportPassThroughMutex.Lock()
+	defer fake.getDisableSenderReportPassThroughMutex.Unlock()
+	fake.GetDisableSenderReportPassThroughStub = nil
+	if fake.getDisableSenderReportPassThroughReturnsOnCall == nil {
+		fake.getDisableSenderReportPassThroughReturnsOnCall = make(map[int]struct {
+			result1 bool
 		})
 	}
-	fake.getICEConnectionDetailsReturnsOnCall[i] = struct {
-		result1 []*types.ICEConnectionDetails
+	fake.getDisableSenderReportPassThroughReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetEnabledPublishCodecs() []*livekit.Codec {
+	fake.getEnabledPublishCodecsMutex.Lock()
+	ret, specificReturn := fake.getEnabledPublishCodecsReturnsOnCall[len(fake.getEnabledPublishCodecsArgsForCall)]
+	fake.getEnabledPublishCodecsArgsForCall = append(fake.getEnabledPublishCodecsArgsForCall, struct {
+	}{})
+	stub := fake.GetEnabledPublishCodecsStub
+	fakeReturns := fake.getEnabledPublishCodecsReturns
+	fake.recordInvocation("GetEnabledPublishCodecs", []interface{}{})
+	fake.getEnabledPublishCodecsMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) GetEnabledPublishCodecsCallCount() int {
+	fake.getEnabledPublishCodecsMutex.RLock()
+	defer fake.getEnabledPublishCodecsMutex.RUnlock()
+	return len(fake.getEnabledPublishCodecsArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetEnabledPublishCodecsCalls(stub func() []*livekit.Codec) {
+	fake.getEnabledPublishCodecsMutex.Lock()
+	defer fake.getEnabledPublishCodecsMutex.Unlock()
+	fake.GetEnabledPublishCodecsStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetEnabledPublishCodecsReturns(result1 []*livekit.Codec) {
+	fake.getEnabledPublishCodecsMutex.Lock()
+	defer fake.getEnabledPublishCodecsMutex.Unlock()
+	fake.GetEnabledPublishCodecsStub = nil
+	fake.getEnabledPublishCodecsReturns = struct {
+		result1 []*livekit.Codec
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetEnabledPublishCodecsReturnsOnCall(i int, result1 []*livekit.Codec) {
+	fake.getEnabledPublishCodecsMutex.Lock()
+	defer fake.getEnabledPublishCodecsMutex.Unlock()
+	fake.GetEnabledPublishCodecsStub = nil
+	if fake.getEnabledPublishCodecsReturnsOnCall == nil {
+		fake.getEnabledPublishCodecsReturnsOnCall = make(map[int]struct {
+			result1 []*livekit.Codec
+		})
+	}
+	fake.getEnabledPublishCodecsReturnsOnCall[i] = struct {
+		result1 []*livekit.Codec
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetICEConfig() *livekit.ICEConfig {
+	fake.getICEConfigMutex.Lock()
+	ret, specificReturn := fake.getICEConfigReturnsOnCall[len(fake.getICEConfigArgsForCall)]
+	fake.getICEConfigArgsForCall = append(fake.getICEConfigArgsForCall, struct {
+	}{})
+	stub := fake.GetICEConfigStub
+	fakeReturns := fake.getICEConfigReturns
+	fake.recordInvocation("GetICEConfig", []interface{}{})
+	fake.getICEConfigMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) GetICEConfigCallCount() int {
+	fake.getICEConfigMutex.RLock()
+	defer fake.getICEConfigMutex.RUnlock()
+	return len(fake.getICEConfigArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetICEConfigCalls(stub func() *livekit.ICEConfig) {
+	fake.getICEConfigMutex.Lock()
+	defer fake.getICEConfigMutex.Unlock()
+	fake.GetICEConfigStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetICEConfigReturns(result1 *livekit.ICEConfig) {
+	fake.getICEConfigMutex.Lock()
+	defer fake.getICEConfigMutex.Unlock()
+	fake.GetICEConfigStub = nil
+	fake.getICEConfigReturns = struct {
+		result1 *livekit.ICEConfig
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetICEConfigReturnsOnCall(i int, result1 *livekit.ICEConfig) {
+	fake.getICEConfigMutex.Lock()
+	defer fake.getICEConfigMutex.Unlock()
+	fake.GetICEConfigStub = nil
+	if fake.getICEConfigReturnsOnCall == nil {
+		fake.getICEConfigReturnsOnCall = make(map[int]struct {
+			result1 *livekit.ICEConfig
+		})
+	}
+	fake.getICEConfigReturnsOnCall[i] = struct {
+		result1 *livekit.ICEConfig
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetICEConnectionInfo() []*types.ICEConnectionInfo {
+	fake.getICEConnectionInfoMutex.Lock()
+	ret, specificReturn := fake.getICEConnectionInfoReturnsOnCall[len(fake.getICEConnectionInfoArgsForCall)]
+	fake.getICEConnectionInfoArgsForCall = append(fake.getICEConnectionInfoArgsForCall, struct {
+	}{})
+	stub := fake.GetICEConnectionInfoStub
+	fakeReturns := fake.getICEConnectionInfoReturns
+	fake.recordInvocation("GetICEConnectionInfo", []interface{}{})
+	fake.getICEConnectionInfoMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) GetICEConnectionInfoCallCount() int {
+	fake.getICEConnectionInfoMutex.RLock()
+	defer fake.getICEConnectionInfoMutex.RUnlock()
+	return len(fake.getICEConnectionInfoArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetICEConnectionInfoCalls(stub func() []*types.ICEConnectionInfo) {
+	fake.getICEConnectionInfoMutex.Lock()
+	defer fake.getICEConnectionInfoMutex.Unlock()
+	fake.GetICEConnectionInfoStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetICEConnectionInfoReturns(result1 []*types.ICEConnectionInfo) {
+	fake.getICEConnectionInfoMutex.Lock()
+	defer fake.getICEConnectionInfoMutex.Unlock()
+	fake.GetICEConnectionInfoStub = nil
+	fake.getICEConnectionInfoReturns = struct {
+		result1 []*types.ICEConnectionInfo
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetICEConnectionInfoReturnsOnCall(i int, result1 []*types.ICEConnectionInfo) {
+	fake.getICEConnectionInfoMutex.Lock()
+	defer fake.getICEConnectionInfoMutex.Unlock()
+	fake.GetICEConnectionInfoStub = nil
+	if fake.getICEConnectionInfoReturnsOnCall == nil {
+		fake.getICEConnectionInfoReturnsOnCall = make(map[int]struct {
+			result1 []*types.ICEConnectionInfo
+		})
+	}
+	fake.getICEConnectionInfoReturnsOnCall[i] = struct {
+		result1 []*types.ICEConnectionInfo
 	}{result1}
 }
 
@@ -2328,6 +2919,59 @@ func (fake *FakeLocalParticipant) GetLoggerReturnsOnCall(i int, result1 logger.L
 	}
 	fake.getLoggerReturnsOnCall[i] = struct {
 		result1 logger.Logger
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetLoggerResolver() logger.DeferredFieldResolver {
+	fake.getLoggerResolverMutex.Lock()
+	ret, specificReturn := fake.getLoggerResolverReturnsOnCall[len(fake.getLoggerResolverArgsForCall)]
+	fake.getLoggerResolverArgsForCall = append(fake.getLoggerResolverArgsForCall, struct {
+	}{})
+	stub := fake.GetLoggerResolverStub
+	fakeReturns := fake.getLoggerResolverReturns
+	fake.recordInvocation("GetLoggerResolver", []interface{}{})
+	fake.getLoggerResolverMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) GetLoggerResolverCallCount() int {
+	fake.getLoggerResolverMutex.RLock()
+	defer fake.getLoggerResolverMutex.RUnlock()
+	return len(fake.getLoggerResolverArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetLoggerResolverCalls(stub func() logger.DeferredFieldResolver) {
+	fake.getLoggerResolverMutex.Lock()
+	defer fake.getLoggerResolverMutex.Unlock()
+	fake.GetLoggerResolverStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetLoggerResolverReturns(result1 logger.DeferredFieldResolver) {
+	fake.getLoggerResolverMutex.Lock()
+	defer fake.getLoggerResolverMutex.Unlock()
+	fake.GetLoggerResolverStub = nil
+	fake.getLoggerResolverReturns = struct {
+		result1 logger.DeferredFieldResolver
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetLoggerResolverReturnsOnCall(i int, result1 logger.DeferredFieldResolver) {
+	fake.getLoggerResolverMutex.Lock()
+	defer fake.getLoggerResolverMutex.Unlock()
+	fake.GetLoggerResolverStub = nil
+	if fake.getLoggerResolverReturnsOnCall == nil {
+		fake.getLoggerResolverReturnsOnCall = make(map[int]struct {
+			result1 logger.DeferredFieldResolver
+		})
+	}
+	fake.getLoggerResolverReturnsOnCall[i] = struct {
+		result1 logger.DeferredFieldResolver
 	}{result1}
 }
 
@@ -2612,6 +3256,62 @@ func (fake *FakeLocalParticipant) GetPublishedTracksReturnsOnCall(i int, result1
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) GetPublisherICESessionUfrag() (string, error) {
+	fake.getPublisherICESessionUfragMutex.Lock()
+	ret, specificReturn := fake.getPublisherICESessionUfragReturnsOnCall[len(fake.getPublisherICESessionUfragArgsForCall)]
+	fake.getPublisherICESessionUfragArgsForCall = append(fake.getPublisherICESessionUfragArgsForCall, struct {
+	}{})
+	stub := fake.GetPublisherICESessionUfragStub
+	fakeReturns := fake.getPublisherICESessionUfragReturns
+	fake.recordInvocation("GetPublisherICESessionUfrag", []interface{}{})
+	fake.getPublisherICESessionUfragMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeLocalParticipant) GetPublisherICESessionUfragCallCount() int {
+	fake.getPublisherICESessionUfragMutex.RLock()
+	defer fake.getPublisherICESessionUfragMutex.RUnlock()
+	return len(fake.getPublisherICESessionUfragArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetPublisherICESessionUfragCalls(stub func() (string, error)) {
+	fake.getPublisherICESessionUfragMutex.Lock()
+	defer fake.getPublisherICESessionUfragMutex.Unlock()
+	fake.GetPublisherICESessionUfragStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetPublisherICESessionUfragReturns(result1 string, result2 error) {
+	fake.getPublisherICESessionUfragMutex.Lock()
+	defer fake.getPublisherICESessionUfragMutex.Unlock()
+	fake.GetPublisherICESessionUfragStub = nil
+	fake.getPublisherICESessionUfragReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeLocalParticipant) GetPublisherICESessionUfragReturnsOnCall(i int, result1 string, result2 error) {
+	fake.getPublisherICESessionUfragMutex.Lock()
+	defer fake.getPublisherICESessionUfragMutex.Unlock()
+	fake.GetPublisherICESessionUfragStub = nil
+	if fake.getPublisherICESessionUfragReturnsOnCall == nil {
+		fake.getPublisherICESessionUfragReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.getPublisherICESessionUfragReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
 func (fake *FakeLocalParticipant) GetSubscribedParticipants() []livekit.ParticipantID {
 	fake.getSubscribedParticipantsMutex.Lock()
 	ret, specificReturn := fake.getSubscribedParticipantsReturnsOnCall[len(fake.getSubscribedParticipantsArgsForCall)]
@@ -2803,17 +3503,210 @@ func (fake *FakeLocalParticipant) HandleAnswerArgsForCall(i int) webrtc.SessionD
 	return argsForCall.arg1
 }
 
-func (fake *FakeLocalParticipant) HandleOffer(arg1 webrtc.SessionDescription) {
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragment(arg1 string) (string, error) {
+	fake.handleICERestartSDPFragmentMutex.Lock()
+	ret, specificReturn := fake.handleICERestartSDPFragmentReturnsOnCall[len(fake.handleICERestartSDPFragmentArgsForCall)]
+	fake.handleICERestartSDPFragmentArgsForCall = append(fake.handleICERestartSDPFragmentArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.HandleICERestartSDPFragmentStub
+	fakeReturns := fake.handleICERestartSDPFragmentReturns
+	fake.recordInvocation("HandleICERestartSDPFragment", []interface{}{arg1})
+	fake.handleICERestartSDPFragmentMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragmentCallCount() int {
+	fake.handleICERestartSDPFragmentMutex.RLock()
+	defer fake.handleICERestartSDPFragmentMutex.RUnlock()
+	return len(fake.handleICERestartSDPFragmentArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragmentCalls(stub func(string) (string, error)) {
+	fake.handleICERestartSDPFragmentMutex.Lock()
+	defer fake.handleICERestartSDPFragmentMutex.Unlock()
+	fake.HandleICERestartSDPFragmentStub = stub
+}
+
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragmentArgsForCall(i int) string {
+	fake.handleICERestartSDPFragmentMutex.RLock()
+	defer fake.handleICERestartSDPFragmentMutex.RUnlock()
+	argsForCall := fake.handleICERestartSDPFragmentArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragmentReturns(result1 string, result2 error) {
+	fake.handleICERestartSDPFragmentMutex.Lock()
+	defer fake.handleICERestartSDPFragmentMutex.Unlock()
+	fake.HandleICERestartSDPFragmentStub = nil
+	fake.handleICERestartSDPFragmentReturns = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeLocalParticipant) HandleICERestartSDPFragmentReturnsOnCall(i int, result1 string, result2 error) {
+	fake.handleICERestartSDPFragmentMutex.Lock()
+	defer fake.handleICERestartSDPFragmentMutex.Unlock()
+	fake.HandleICERestartSDPFragmentStub = nil
+	if fake.handleICERestartSDPFragmentReturnsOnCall == nil {
+		fake.handleICERestartSDPFragmentReturnsOnCall = make(map[int]struct {
+			result1 string
+			result2 error
+		})
+	}
+	fake.handleICERestartSDPFragmentReturnsOnCall[i] = struct {
+		result1 string
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragment(arg1 string) error {
+	fake.handleICETrickleSDPFragmentMutex.Lock()
+	ret, specificReturn := fake.handleICETrickleSDPFragmentReturnsOnCall[len(fake.handleICETrickleSDPFragmentArgsForCall)]
+	fake.handleICETrickleSDPFragmentArgsForCall = append(fake.handleICETrickleSDPFragmentArgsForCall, struct {
+		arg1 string
+	}{arg1})
+	stub := fake.HandleICETrickleSDPFragmentStub
+	fakeReturns := fake.handleICETrickleSDPFragmentReturns
+	fake.recordInvocation("HandleICETrickleSDPFragment", []interface{}{arg1})
+	fake.handleICETrickleSDPFragmentMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragmentCallCount() int {
+	fake.handleICETrickleSDPFragmentMutex.RLock()
+	defer fake.handleICETrickleSDPFragmentMutex.RUnlock()
+	return len(fake.handleICETrickleSDPFragmentArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragmentCalls(stub func(string) error) {
+	fake.handleICETrickleSDPFragmentMutex.Lock()
+	defer fake.handleICETrickleSDPFragmentMutex.Unlock()
+	fake.HandleICETrickleSDPFragmentStub = stub
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragmentArgsForCall(i int) string {
+	fake.handleICETrickleSDPFragmentMutex.RLock()
+	defer fake.handleICETrickleSDPFragmentMutex.RUnlock()
+	argsForCall := fake.handleICETrickleSDPFragmentArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragmentReturns(result1 error) {
+	fake.handleICETrickleSDPFragmentMutex.Lock()
+	defer fake.handleICETrickleSDPFragmentMutex.Unlock()
+	fake.HandleICETrickleSDPFragmentStub = nil
+	fake.handleICETrickleSDPFragmentReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) HandleICETrickleSDPFragmentReturnsOnCall(i int, result1 error) {
+	fake.handleICETrickleSDPFragmentMutex.Lock()
+	defer fake.handleICETrickleSDPFragmentMutex.Unlock()
+	fake.HandleICETrickleSDPFragmentStub = nil
+	if fake.handleICETrickleSDPFragmentReturnsOnCall == nil {
+		fake.handleICETrickleSDPFragmentReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.handleICETrickleSDPFragmentReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) HandleMetrics(arg1 livekit.ParticipantID, arg2 *livekit.MetricsBatch) error {
+	fake.handleMetricsMutex.Lock()
+	ret, specificReturn := fake.handleMetricsReturnsOnCall[len(fake.handleMetricsArgsForCall)]
+	fake.handleMetricsArgsForCall = append(fake.handleMetricsArgsForCall, struct {
+		arg1 livekit.ParticipantID
+		arg2 *livekit.MetricsBatch
+	}{arg1, arg2})
+	stub := fake.HandleMetricsStub
+	fakeReturns := fake.handleMetricsReturns
+	fake.recordInvocation("HandleMetrics", []interface{}{arg1, arg2})
+	fake.handleMetricsMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) HandleMetricsCallCount() int {
+	fake.handleMetricsMutex.RLock()
+	defer fake.handleMetricsMutex.RUnlock()
+	return len(fake.handleMetricsArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) HandleMetricsCalls(stub func(livekit.ParticipantID, *livekit.MetricsBatch) error) {
+	fake.handleMetricsMutex.Lock()
+	defer fake.handleMetricsMutex.Unlock()
+	fake.HandleMetricsStub = stub
+}
+
+func (fake *FakeLocalParticipant) HandleMetricsArgsForCall(i int) (livekit.ParticipantID, *livekit.MetricsBatch) {
+	fake.handleMetricsMutex.RLock()
+	defer fake.handleMetricsMutex.RUnlock()
+	argsForCall := fake.handleMetricsArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeLocalParticipant) HandleMetricsReturns(result1 error) {
+	fake.handleMetricsMutex.Lock()
+	defer fake.handleMetricsMutex.Unlock()
+	fake.HandleMetricsStub = nil
+	fake.handleMetricsReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) HandleMetricsReturnsOnCall(i int, result1 error) {
+	fake.handleMetricsMutex.Lock()
+	defer fake.handleMetricsMutex.Unlock()
+	fake.HandleMetricsStub = nil
+	if fake.handleMetricsReturnsOnCall == nil {
+		fake.handleMetricsReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.handleMetricsReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) HandleOffer(arg1 webrtc.SessionDescription) error {
 	fake.handleOfferMutex.Lock()
+	ret, specificReturn := fake.handleOfferReturnsOnCall[len(fake.handleOfferArgsForCall)]
 	fake.handleOfferArgsForCall = append(fake.handleOfferArgsForCall, struct {
 		arg1 webrtc.SessionDescription
 	}{arg1})
 	stub := fake.HandleOfferStub
+	fakeReturns := fake.handleOfferReturns
 	fake.recordInvocation("HandleOffer", []interface{}{arg1})
 	fake.handleOfferMutex.Unlock()
 	if stub != nil {
-		fake.HandleOfferStub(arg1)
+		return stub(arg1)
 	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
 }
 
 func (fake *FakeLocalParticipant) HandleOfferCallCount() int {
@@ -2822,7 +3715,7 @@ func (fake *FakeLocalParticipant) HandleOfferCallCount() int {
 	return len(fake.handleOfferArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) HandleOfferCalls(stub func(webrtc.SessionDescription)) {
+func (fake *FakeLocalParticipant) HandleOfferCalls(stub func(webrtc.SessionDescription) error) {
 	fake.handleOfferMutex.Lock()
 	defer fake.handleOfferMutex.Unlock()
 	fake.HandleOfferStub = stub
@@ -2833,6 +3726,29 @@ func (fake *FakeLocalParticipant) HandleOfferArgsForCall(i int) webrtc.SessionDe
 	defer fake.handleOfferMutex.RUnlock()
 	argsForCall := fake.handleOfferArgsForCall[i]
 	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) HandleOfferReturns(result1 error) {
+	fake.handleOfferMutex.Lock()
+	defer fake.handleOfferMutex.Unlock()
+	fake.HandleOfferStub = nil
+	fake.handleOfferReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) HandleOfferReturnsOnCall(i int, result1 error) {
+	fake.handleOfferMutex.Lock()
+	defer fake.handleOfferMutex.Unlock()
+	fake.HandleOfferStub = nil
+	if fake.handleOfferReturnsOnCall == nil {
+		fake.handleOfferReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.handleOfferReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
 }
 
 func (fake *FakeLocalParticipant) HandleReceiverReport(arg1 *sfu.DownTrack, arg2 *rtcp.ReceiverReport) {
@@ -3260,6 +4176,59 @@ func (fake *FakeLocalParticipant) IdentityReturnsOnCall(i int, result1 livekit.P
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) IsAgent() bool {
+	fake.isAgentMutex.Lock()
+	ret, specificReturn := fake.isAgentReturnsOnCall[len(fake.isAgentArgsForCall)]
+	fake.isAgentArgsForCall = append(fake.isAgentArgsForCall, struct {
+	}{})
+	stub := fake.IsAgentStub
+	fakeReturns := fake.isAgentReturns
+	fake.recordInvocation("IsAgent", []interface{}{})
+	fake.isAgentMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) IsAgentCallCount() int {
+	fake.isAgentMutex.RLock()
+	defer fake.isAgentMutex.RUnlock()
+	return len(fake.isAgentArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) IsAgentCalls(stub func() bool) {
+	fake.isAgentMutex.Lock()
+	defer fake.isAgentMutex.Unlock()
+	fake.IsAgentStub = stub
+}
+
+func (fake *FakeLocalParticipant) IsAgentReturns(result1 bool) {
+	fake.isAgentMutex.Lock()
+	defer fake.isAgentMutex.Unlock()
+	fake.IsAgentStub = nil
+	fake.isAgentReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) IsAgentReturnsOnCall(i int, result1 bool) {
+	fake.isAgentMutex.Lock()
+	defer fake.isAgentMutex.Unlock()
+	fake.IsAgentStub = nil
+	if fake.isAgentReturnsOnCall == nil {
+		fake.isAgentReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.isAgentReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
 func (fake *FakeLocalParticipant) IsClosed() bool {
 	fake.isClosedMutex.Lock()
 	ret, specificReturn := fake.isClosedReturnsOnCall[len(fake.isClosedArgsForCall)]
@@ -3578,6 +4547,59 @@ func (fake *FakeLocalParticipant) IsReadyReturnsOnCall(i int, result1 bool) {
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) IsReconnect() bool {
+	fake.isReconnectMutex.Lock()
+	ret, specificReturn := fake.isReconnectReturnsOnCall[len(fake.isReconnectArgsForCall)]
+	fake.isReconnectArgsForCall = append(fake.isReconnectArgsForCall, struct {
+	}{})
+	stub := fake.IsReconnectStub
+	fakeReturns := fake.isReconnectReturns
+	fake.recordInvocation("IsReconnect", []interface{}{})
+	fake.isReconnectMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) IsReconnectCallCount() int {
+	fake.isReconnectMutex.RLock()
+	defer fake.isReconnectMutex.RUnlock()
+	return len(fake.isReconnectArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) IsReconnectCalls(stub func() bool) {
+	fake.isReconnectMutex.Lock()
+	defer fake.isReconnectMutex.Unlock()
+	fake.IsReconnectStub = stub
+}
+
+func (fake *FakeLocalParticipant) IsReconnectReturns(result1 bool) {
+	fake.isReconnectMutex.Lock()
+	defer fake.isReconnectMutex.Unlock()
+	fake.IsReconnectStub = nil
+	fake.isReconnectReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) IsReconnectReturnsOnCall(i int, result1 bool) {
+	fake.isReconnectMutex.Lock()
+	defer fake.isReconnectMutex.Unlock()
+	fake.IsReconnectStub = nil
+	if fake.isReconnectReturnsOnCall == nil {
+		fake.isReconnectReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.isReconnectReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
 func (fake *FakeLocalParticipant) IsRecorder() bool {
 	fake.isRecorderMutex.Lock()
 	ret, specificReturn := fake.isRecorderReturnsOnCall[len(fake.isRecorderArgsForCall)]
@@ -3688,6 +4710,68 @@ func (fake *FakeLocalParticipant) IsSubscribedToReturnsOnCall(i int, result1 boo
 		})
 	}
 	fake.isSubscribedToReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribed(arg1 livekit.ParticipantIdentity, arg2 string) bool {
+	fake.isTrackNameSubscribedMutex.Lock()
+	ret, specificReturn := fake.isTrackNameSubscribedReturnsOnCall[len(fake.isTrackNameSubscribedArgsForCall)]
+	fake.isTrackNameSubscribedArgsForCall = append(fake.isTrackNameSubscribedArgsForCall, struct {
+		arg1 livekit.ParticipantIdentity
+		arg2 string
+	}{arg1, arg2})
+	stub := fake.IsTrackNameSubscribedStub
+	fakeReturns := fake.isTrackNameSubscribedReturns
+	fake.recordInvocation("IsTrackNameSubscribed", []interface{}{arg1, arg2})
+	fake.isTrackNameSubscribedMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribedCallCount() int {
+	fake.isTrackNameSubscribedMutex.RLock()
+	defer fake.isTrackNameSubscribedMutex.RUnlock()
+	return len(fake.isTrackNameSubscribedArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribedCalls(stub func(livekit.ParticipantIdentity, string) bool) {
+	fake.isTrackNameSubscribedMutex.Lock()
+	defer fake.isTrackNameSubscribedMutex.Unlock()
+	fake.IsTrackNameSubscribedStub = stub
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribedArgsForCall(i int) (livekit.ParticipantIdentity, string) {
+	fake.isTrackNameSubscribedMutex.RLock()
+	defer fake.isTrackNameSubscribedMutex.RUnlock()
+	argsForCall := fake.isTrackNameSubscribedArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribedReturns(result1 bool) {
+	fake.isTrackNameSubscribedMutex.Lock()
+	defer fake.isTrackNameSubscribedMutex.Unlock()
+	fake.IsTrackNameSubscribedStub = nil
+	fake.isTrackNameSubscribedReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) IsTrackNameSubscribedReturnsOnCall(i int, result1 bool) {
+	fake.isTrackNameSubscribedMutex.Lock()
+	defer fake.isTrackNameSubscribedMutex.Unlock()
+	fake.IsTrackNameSubscribedStub = nil
+	if fake.isTrackNameSubscribedReturnsOnCall == nil {
+		fake.isTrackNameSubscribedReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.isTrackNameSubscribedReturnsOnCall[i] = struct {
 		result1 bool
 	}{result1}
 }
@@ -3892,6 +4976,38 @@ func (fake *FakeLocalParticipant) MigrateStateReturnsOnCall(i int, result1 types
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) MoveToRoom(arg1 types.MoveToRoomParams) {
+	fake.moveToRoomMutex.Lock()
+	fake.moveToRoomArgsForCall = append(fake.moveToRoomArgsForCall, struct {
+		arg1 types.MoveToRoomParams
+	}{arg1})
+	stub := fake.MoveToRoomStub
+	fake.recordInvocation("MoveToRoom", []interface{}{arg1})
+	fake.moveToRoomMutex.Unlock()
+	if stub != nil {
+		fake.MoveToRoomStub(arg1)
+	}
+}
+
+func (fake *FakeLocalParticipant) MoveToRoomCallCount() int {
+	fake.moveToRoomMutex.RLock()
+	defer fake.moveToRoomMutex.RUnlock()
+	return len(fake.moveToRoomArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) MoveToRoomCalls(stub func(types.MoveToRoomParams)) {
+	fake.moveToRoomMutex.Lock()
+	defer fake.moveToRoomMutex.Unlock()
+	fake.MoveToRoomStub = stub
+}
+
+func (fake *FakeLocalParticipant) MoveToRoomArgsForCall(i int) types.MoveToRoomParams {
+	fake.moveToRoomMutex.RLock()
+	defer fake.moveToRoomMutex.RUnlock()
+	argsForCall := fake.moveToRoomArgsForCall[i]
+	return argsForCall.arg1
+}
+
 func (fake *FakeLocalParticipant) Negotiate(arg1 bool) {
 	fake.negotiateMutex.Lock()
 	fake.negotiateArgsForCall = append(fake.negotiateArgsForCall, struct {
@@ -4012,6 +5128,38 @@ func (fake *FakeLocalParticipant) OnCloseArgsForCall(i int) func(types.LocalPart
 	return argsForCall.arg1
 }
 
+func (fake *FakeLocalParticipant) OnDataMessage(arg1 func(types.LocalParticipant, []byte)) {
+	fake.onDataMessageMutex.Lock()
+	fake.onDataMessageArgsForCall = append(fake.onDataMessageArgsForCall, struct {
+		arg1 func(types.LocalParticipant, []byte)
+	}{arg1})
+	stub := fake.OnDataMessageStub
+	fake.recordInvocation("OnDataMessage", []interface{}{arg1})
+	fake.onDataMessageMutex.Unlock()
+	if stub != nil {
+		fake.OnDataMessageStub(arg1)
+	}
+}
+
+func (fake *FakeLocalParticipant) OnDataMessageCallCount() int {
+	fake.onDataMessageMutex.RLock()
+	defer fake.onDataMessageMutex.RUnlock()
+	return len(fake.onDataMessageArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) OnDataMessageCalls(stub func(func(types.LocalParticipant, []byte))) {
+	fake.onDataMessageMutex.Lock()
+	defer fake.onDataMessageMutex.Unlock()
+	fake.OnDataMessageStub = stub
+}
+
+func (fake *FakeLocalParticipant) OnDataMessageArgsForCall(i int) func(types.LocalParticipant, []byte) {
+	fake.onDataMessageMutex.RLock()
+	defer fake.onDataMessageMutex.RUnlock()
+	argsForCall := fake.onDataMessageArgsForCall[i]
+	return argsForCall.arg1
+}
+
 func (fake *FakeLocalParticipant) OnDataPacket(arg1 func(types.LocalParticipant, livekit.DataPacket_Kind, *livekit.DataPacket)) {
 	fake.onDataPacketMutex.Lock()
 	fake.onDataPacketArgsForCall = append(fake.onDataPacketArgsForCall, struct {
@@ -4073,6 +5221,38 @@ func (fake *FakeLocalParticipant) OnICEConfigChangedArgsForCall(i int) func(part
 	fake.onICEConfigChangedMutex.RLock()
 	defer fake.onICEConfigChangedMutex.RUnlock()
 	argsForCall := fake.onICEConfigChangedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) OnMetrics(arg1 func(types.Participant, *livekit.DataPacket)) {
+	fake.onMetricsMutex.Lock()
+	fake.onMetricsArgsForCall = append(fake.onMetricsArgsForCall, struct {
+		arg1 func(types.Participant, *livekit.DataPacket)
+	}{arg1})
+	stub := fake.OnMetricsStub
+	fake.recordInvocation("OnMetrics", []interface{}{arg1})
+	fake.onMetricsMutex.Unlock()
+	if stub != nil {
+		fake.OnMetricsStub(arg1)
+	}
+}
+
+func (fake *FakeLocalParticipant) OnMetricsCallCount() int {
+	fake.onMetricsMutex.RLock()
+	defer fake.onMetricsMutex.RUnlock()
+	return len(fake.onMetricsArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) OnMetricsCalls(stub func(func(types.Participant, *livekit.DataPacket))) {
+	fake.onMetricsMutex.Lock()
+	defer fake.onMetricsMutex.Unlock()
+	fake.OnMetricsStub = stub
+}
+
+func (fake *FakeLocalParticipant) OnMetricsArgsForCall(i int) func(types.Participant, *livekit.DataPacket) {
+	fake.onMetricsMutex.RLock()
+	defer fake.onMetricsMutex.RUnlock()
+	argsForCall := fake.onMetricsArgsForCall[i]
 	return argsForCall.arg1
 }
 
@@ -4140,10 +5320,10 @@ func (fake *FakeLocalParticipant) OnParticipantUpdateArgsForCall(i int) func(typ
 	return argsForCall.arg1
 }
 
-func (fake *FakeLocalParticipant) OnStateChange(arg1 func(p types.LocalParticipant, state livekit.ParticipantInfo_State)) {
+func (fake *FakeLocalParticipant) OnStateChange(arg1 func(p types.LocalParticipant)) {
 	fake.onStateChangeMutex.Lock()
 	fake.onStateChangeArgsForCall = append(fake.onStateChangeArgsForCall, struct {
-		arg1 func(p types.LocalParticipant, state livekit.ParticipantInfo_State)
+		arg1 func(p types.LocalParticipant)
 	}{arg1})
 	stub := fake.OnStateChangeStub
 	fake.recordInvocation("OnStateChange", []interface{}{arg1})
@@ -4159,13 +5339,13 @@ func (fake *FakeLocalParticipant) OnStateChangeCallCount() int {
 	return len(fake.onStateChangeArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) OnStateChangeCalls(stub func(func(p types.LocalParticipant, state livekit.ParticipantInfo_State))) {
+func (fake *FakeLocalParticipant) OnStateChangeCalls(stub func(func(p types.LocalParticipant))) {
 	fake.onStateChangeMutex.Lock()
 	defer fake.onStateChangeMutex.Unlock()
 	fake.OnStateChangeStub = stub
 }
 
-func (fake *FakeLocalParticipant) OnStateChangeArgsForCall(i int) func(p types.LocalParticipant, state livekit.ParticipantInfo_State) {
+func (fake *FakeLocalParticipant) OnStateChangeArgsForCall(i int) func(p types.LocalParticipant) {
 	fake.onStateChangeMutex.RLock()
 	defer fake.onStateChangeMutex.RUnlock()
 	argsForCall := fake.onStateChangeArgsForCall[i]
@@ -4201,6 +5381,38 @@ func (fake *FakeLocalParticipant) OnSubscribeStatusChangedArgsForCall(i int) fun
 	fake.onSubscribeStatusChangedMutex.RLock()
 	defer fake.onSubscribeStatusChangedMutex.RUnlock()
 	argsForCall := fake.onSubscribeStatusChangedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) OnSubscriberReady(arg1 func(types.LocalParticipant)) {
+	fake.onSubscriberReadyMutex.Lock()
+	fake.onSubscriberReadyArgsForCall = append(fake.onSubscriberReadyArgsForCall, struct {
+		arg1 func(types.LocalParticipant)
+	}{arg1})
+	stub := fake.OnSubscriberReadyStub
+	fake.recordInvocation("OnSubscriberReady", []interface{}{arg1})
+	fake.onSubscriberReadyMutex.Unlock()
+	if stub != nil {
+		fake.OnSubscriberReadyStub(arg1)
+	}
+}
+
+func (fake *FakeLocalParticipant) OnSubscriberReadyCallCount() int {
+	fake.onSubscriberReadyMutex.RLock()
+	defer fake.onSubscriberReadyMutex.RUnlock()
+	return len(fake.onSubscriberReadyArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) OnSubscriberReadyCalls(stub func(func(types.LocalParticipant))) {
+	fake.onSubscriberReadyMutex.Lock()
+	defer fake.onSubscriberReadyMutex.Unlock()
+	fake.OnSubscriberReadyStub = stub
+}
+
+func (fake *FakeLocalParticipant) OnSubscriberReadyArgsForCall(i int) func(types.LocalParticipant) {
+	fake.onSubscriberReadyMutex.RLock()
+	defer fake.onSubscriberReadyMutex.RUnlock()
+	argsForCall := fake.onSubscriberReadyArgsForCall[i]
 	return argsForCall.arg1
 }
 
@@ -4387,16 +5599,16 @@ func (fake *FakeLocalParticipant) RemovePublishedTrackArgsForCall(i int) (types.
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriber(arg1 *webrtc.RTPSender) error {
-	fake.removeTrackFromSubscriberMutex.Lock()
-	ret, specificReturn := fake.removeTrackFromSubscriberReturnsOnCall[len(fake.removeTrackFromSubscriberArgsForCall)]
-	fake.removeTrackFromSubscriberArgsForCall = append(fake.removeTrackFromSubscriberArgsForCall, struct {
+func (fake *FakeLocalParticipant) RemoveTrackLocal(arg1 *webrtc.RTPSender) error {
+	fake.removeTrackLocalMutex.Lock()
+	ret, specificReturn := fake.removeTrackLocalReturnsOnCall[len(fake.removeTrackLocalArgsForCall)]
+	fake.removeTrackLocalArgsForCall = append(fake.removeTrackLocalArgsForCall, struct {
 		arg1 *webrtc.RTPSender
 	}{arg1})
-	stub := fake.RemoveTrackFromSubscriberStub
-	fakeReturns := fake.removeTrackFromSubscriberReturns
-	fake.recordInvocation("RemoveTrackFromSubscriber", []interface{}{arg1})
-	fake.removeTrackFromSubscriberMutex.Unlock()
+	stub := fake.RemoveTrackLocalStub
+	fakeReturns := fake.removeTrackLocalReturns
+	fake.recordInvocation("RemoveTrackLocal", []interface{}{arg1})
+	fake.removeTrackLocalMutex.Unlock()
 	if stub != nil {
 		return stub(arg1)
 	}
@@ -4406,44 +5618,44 @@ func (fake *FakeLocalParticipant) RemoveTrackFromSubscriber(arg1 *webrtc.RTPSend
 	return fakeReturns.result1
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriberCallCount() int {
-	fake.removeTrackFromSubscriberMutex.RLock()
-	defer fake.removeTrackFromSubscriberMutex.RUnlock()
-	return len(fake.removeTrackFromSubscriberArgsForCall)
+func (fake *FakeLocalParticipant) RemoveTrackLocalCallCount() int {
+	fake.removeTrackLocalMutex.RLock()
+	defer fake.removeTrackLocalMutex.RUnlock()
+	return len(fake.removeTrackLocalArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriberCalls(stub func(*webrtc.RTPSender) error) {
-	fake.removeTrackFromSubscriberMutex.Lock()
-	defer fake.removeTrackFromSubscriberMutex.Unlock()
-	fake.RemoveTrackFromSubscriberStub = stub
+func (fake *FakeLocalParticipant) RemoveTrackLocalCalls(stub func(*webrtc.RTPSender) error) {
+	fake.removeTrackLocalMutex.Lock()
+	defer fake.removeTrackLocalMutex.Unlock()
+	fake.RemoveTrackLocalStub = stub
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriberArgsForCall(i int) *webrtc.RTPSender {
-	fake.removeTrackFromSubscriberMutex.RLock()
-	defer fake.removeTrackFromSubscriberMutex.RUnlock()
-	argsForCall := fake.removeTrackFromSubscriberArgsForCall[i]
+func (fake *FakeLocalParticipant) RemoveTrackLocalArgsForCall(i int) *webrtc.RTPSender {
+	fake.removeTrackLocalMutex.RLock()
+	defer fake.removeTrackLocalMutex.RUnlock()
+	argsForCall := fake.removeTrackLocalArgsForCall[i]
 	return argsForCall.arg1
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriberReturns(result1 error) {
-	fake.removeTrackFromSubscriberMutex.Lock()
-	defer fake.removeTrackFromSubscriberMutex.Unlock()
-	fake.RemoveTrackFromSubscriberStub = nil
-	fake.removeTrackFromSubscriberReturns = struct {
+func (fake *FakeLocalParticipant) RemoveTrackLocalReturns(result1 error) {
+	fake.removeTrackLocalMutex.Lock()
+	defer fake.removeTrackLocalMutex.Unlock()
+	fake.RemoveTrackLocalStub = nil
+	fake.removeTrackLocalReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) RemoveTrackFromSubscriberReturnsOnCall(i int, result1 error) {
-	fake.removeTrackFromSubscriberMutex.Lock()
-	defer fake.removeTrackFromSubscriberMutex.Unlock()
-	fake.RemoveTrackFromSubscriberStub = nil
-	if fake.removeTrackFromSubscriberReturnsOnCall == nil {
-		fake.removeTrackFromSubscriberReturnsOnCall = make(map[int]struct {
+func (fake *FakeLocalParticipant) RemoveTrackLocalReturnsOnCall(i int, result1 error) {
+	fake.removeTrackLocalMutex.Lock()
+	defer fake.removeTrackLocalMutex.Unlock()
+	fake.RemoveTrackLocalStub = nil
+	if fake.removeTrackLocalReturnsOnCall == nil {
+		fake.removeTrackLocalReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.removeTrackFromSubscriberReturnsOnCall[i] = struct {
+	fake.removeTrackLocalReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -4509,22 +5721,22 @@ func (fake *FakeLocalParticipant) SendConnectionQualityUpdateReturnsOnCall(i int
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) SendDataPacket(arg1 livekit.DataPacket_Kind, arg2 []byte) error {
+func (fake *FakeLocalParticipant) SendDataMessage(arg1 livekit.DataPacket_Kind, arg2 []byte) error {
 	var arg2Copy []byte
 	if arg2 != nil {
 		arg2Copy = make([]byte, len(arg2))
 		copy(arg2Copy, arg2)
 	}
-	fake.sendDataPacketMutex.Lock()
-	ret, specificReturn := fake.sendDataPacketReturnsOnCall[len(fake.sendDataPacketArgsForCall)]
-	fake.sendDataPacketArgsForCall = append(fake.sendDataPacketArgsForCall, struct {
+	fake.sendDataMessageMutex.Lock()
+	ret, specificReturn := fake.sendDataMessageReturnsOnCall[len(fake.sendDataMessageArgsForCall)]
+	fake.sendDataMessageArgsForCall = append(fake.sendDataMessageArgsForCall, struct {
 		arg1 livekit.DataPacket_Kind
 		arg2 []byte
 	}{arg1, arg2Copy})
-	stub := fake.SendDataPacketStub
-	fakeReturns := fake.sendDataPacketReturns
-	fake.recordInvocation("SendDataPacket", []interface{}{arg1, arg2Copy})
-	fake.sendDataPacketMutex.Unlock()
+	stub := fake.SendDataMessageStub
+	fakeReturns := fake.sendDataMessageReturns
+	fake.recordInvocation("SendDataMessage", []interface{}{arg1, arg2Copy})
+	fake.sendDataMessageMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -4534,44 +5746,112 @@ func (fake *FakeLocalParticipant) SendDataPacket(arg1 livekit.DataPacket_Kind, a
 	return fakeReturns.result1
 }
 
-func (fake *FakeLocalParticipant) SendDataPacketCallCount() int {
-	fake.sendDataPacketMutex.RLock()
-	defer fake.sendDataPacketMutex.RUnlock()
-	return len(fake.sendDataPacketArgsForCall)
+func (fake *FakeLocalParticipant) SendDataMessageCallCount() int {
+	fake.sendDataMessageMutex.RLock()
+	defer fake.sendDataMessageMutex.RUnlock()
+	return len(fake.sendDataMessageArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) SendDataPacketCalls(stub func(livekit.DataPacket_Kind, []byte) error) {
-	fake.sendDataPacketMutex.Lock()
-	defer fake.sendDataPacketMutex.Unlock()
-	fake.SendDataPacketStub = stub
+func (fake *FakeLocalParticipant) SendDataMessageCalls(stub func(livekit.DataPacket_Kind, []byte) error) {
+	fake.sendDataMessageMutex.Lock()
+	defer fake.sendDataMessageMutex.Unlock()
+	fake.SendDataMessageStub = stub
 }
 
-func (fake *FakeLocalParticipant) SendDataPacketArgsForCall(i int) (livekit.DataPacket_Kind, []byte) {
-	fake.sendDataPacketMutex.RLock()
-	defer fake.sendDataPacketMutex.RUnlock()
-	argsForCall := fake.sendDataPacketArgsForCall[i]
+func (fake *FakeLocalParticipant) SendDataMessageArgsForCall(i int) (livekit.DataPacket_Kind, []byte) {
+	fake.sendDataMessageMutex.RLock()
+	defer fake.sendDataMessageMutex.RUnlock()
+	argsForCall := fake.sendDataMessageArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeLocalParticipant) SendDataPacketReturns(result1 error) {
-	fake.sendDataPacketMutex.Lock()
-	defer fake.sendDataPacketMutex.Unlock()
-	fake.SendDataPacketStub = nil
-	fake.sendDataPacketReturns = struct {
+func (fake *FakeLocalParticipant) SendDataMessageReturns(result1 error) {
+	fake.sendDataMessageMutex.Lock()
+	defer fake.sendDataMessageMutex.Unlock()
+	fake.SendDataMessageStub = nil
+	fake.sendDataMessageReturns = struct {
 		result1 error
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) SendDataPacketReturnsOnCall(i int, result1 error) {
-	fake.sendDataPacketMutex.Lock()
-	defer fake.sendDataPacketMutex.Unlock()
-	fake.SendDataPacketStub = nil
-	if fake.sendDataPacketReturnsOnCall == nil {
-		fake.sendDataPacketReturnsOnCall = make(map[int]struct {
+func (fake *FakeLocalParticipant) SendDataMessageReturnsOnCall(i int, result1 error) {
+	fake.sendDataMessageMutex.Lock()
+	defer fake.sendDataMessageMutex.Unlock()
+	fake.SendDataMessageStub = nil
+	if fake.sendDataMessageReturnsOnCall == nil {
+		fake.sendDataMessageReturnsOnCall = make(map[int]struct {
 			result1 error
 		})
 	}
-	fake.sendDataPacketReturnsOnCall[i] = struct {
+	fake.sendDataMessageReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeled(arg1 []byte, arg2 bool, arg3 livekit.ParticipantIdentity) error {
+	var arg1Copy []byte
+	if arg1 != nil {
+		arg1Copy = make([]byte, len(arg1))
+		copy(arg1Copy, arg1)
+	}
+	fake.sendDataMessageUnlabeledMutex.Lock()
+	ret, specificReturn := fake.sendDataMessageUnlabeledReturnsOnCall[len(fake.sendDataMessageUnlabeledArgsForCall)]
+	fake.sendDataMessageUnlabeledArgsForCall = append(fake.sendDataMessageUnlabeledArgsForCall, struct {
+		arg1 []byte
+		arg2 bool
+		arg3 livekit.ParticipantIdentity
+	}{arg1Copy, arg2, arg3})
+	stub := fake.SendDataMessageUnlabeledStub
+	fakeReturns := fake.sendDataMessageUnlabeledReturns
+	fake.recordInvocation("SendDataMessageUnlabeled", []interface{}{arg1Copy, arg2, arg3})
+	fake.sendDataMessageUnlabeledMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2, arg3)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeledCallCount() int {
+	fake.sendDataMessageUnlabeledMutex.RLock()
+	defer fake.sendDataMessageUnlabeledMutex.RUnlock()
+	return len(fake.sendDataMessageUnlabeledArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeledCalls(stub func([]byte, bool, livekit.ParticipantIdentity) error) {
+	fake.sendDataMessageUnlabeledMutex.Lock()
+	defer fake.sendDataMessageUnlabeledMutex.Unlock()
+	fake.SendDataMessageUnlabeledStub = stub
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeledArgsForCall(i int) ([]byte, bool, livekit.ParticipantIdentity) {
+	fake.sendDataMessageUnlabeledMutex.RLock()
+	defer fake.sendDataMessageUnlabeledMutex.RUnlock()
+	argsForCall := fake.sendDataMessageUnlabeledArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeledReturns(result1 error) {
+	fake.sendDataMessageUnlabeledMutex.Lock()
+	defer fake.sendDataMessageUnlabeledMutex.Unlock()
+	fake.SendDataMessageUnlabeledStub = nil
+	fake.sendDataMessageUnlabeledReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SendDataMessageUnlabeledReturnsOnCall(i int, result1 error) {
+	fake.sendDataMessageUnlabeledMutex.Lock()
+	defer fake.sendDataMessageUnlabeledMutex.Unlock()
+	fake.SendDataMessageUnlabeledStub = nil
+	if fake.sendDataMessageUnlabeledReturnsOnCall == nil {
+		fake.sendDataMessageUnlabeledReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.sendDataMessageUnlabeledReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
 }
@@ -4764,6 +6044,128 @@ func (fake *FakeLocalParticipant) SendRefreshTokenReturnsOnCall(i int, result1 e
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) SendRequestResponse(arg1 *livekit.RequestResponse) error {
+	fake.sendRequestResponseMutex.Lock()
+	ret, specificReturn := fake.sendRequestResponseReturnsOnCall[len(fake.sendRequestResponseArgsForCall)]
+	fake.sendRequestResponseArgsForCall = append(fake.sendRequestResponseArgsForCall, struct {
+		arg1 *livekit.RequestResponse
+	}{arg1})
+	stub := fake.SendRequestResponseStub
+	fakeReturns := fake.sendRequestResponseReturns
+	fake.recordInvocation("SendRequestResponse", []interface{}{arg1})
+	fake.sendRequestResponseMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) SendRequestResponseCallCount() int {
+	fake.sendRequestResponseMutex.RLock()
+	defer fake.sendRequestResponseMutex.RUnlock()
+	return len(fake.sendRequestResponseArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) SendRequestResponseCalls(stub func(*livekit.RequestResponse) error) {
+	fake.sendRequestResponseMutex.Lock()
+	defer fake.sendRequestResponseMutex.Unlock()
+	fake.SendRequestResponseStub = stub
+}
+
+func (fake *FakeLocalParticipant) SendRequestResponseArgsForCall(i int) *livekit.RequestResponse {
+	fake.sendRequestResponseMutex.RLock()
+	defer fake.sendRequestResponseMutex.RUnlock()
+	argsForCall := fake.sendRequestResponseArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) SendRequestResponseReturns(result1 error) {
+	fake.sendRequestResponseMutex.Lock()
+	defer fake.sendRequestResponseMutex.Unlock()
+	fake.SendRequestResponseStub = nil
+	fake.sendRequestResponseReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SendRequestResponseReturnsOnCall(i int, result1 error) {
+	fake.sendRequestResponseMutex.Lock()
+	defer fake.sendRequestResponseMutex.Unlock()
+	fake.SendRequestResponseStub = nil
+	if fake.sendRequestResponseReturnsOnCall == nil {
+		fake.sendRequestResponseReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.sendRequestResponseReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponse(arg1 *livekit.RoomMovedResponse) error {
+	fake.sendRoomMovedResponseMutex.Lock()
+	ret, specificReturn := fake.sendRoomMovedResponseReturnsOnCall[len(fake.sendRoomMovedResponseArgsForCall)]
+	fake.sendRoomMovedResponseArgsForCall = append(fake.sendRoomMovedResponseArgsForCall, struct {
+		arg1 *livekit.RoomMovedResponse
+	}{arg1})
+	stub := fake.SendRoomMovedResponseStub
+	fakeReturns := fake.sendRoomMovedResponseReturns
+	fake.recordInvocation("SendRoomMovedResponse", []interface{}{arg1})
+	fake.sendRoomMovedResponseMutex.Unlock()
+	if stub != nil {
+		return stub(arg1)
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponseCallCount() int {
+	fake.sendRoomMovedResponseMutex.RLock()
+	defer fake.sendRoomMovedResponseMutex.RUnlock()
+	return len(fake.sendRoomMovedResponseArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponseCalls(stub func(*livekit.RoomMovedResponse) error) {
+	fake.sendRoomMovedResponseMutex.Lock()
+	defer fake.sendRoomMovedResponseMutex.Unlock()
+	fake.SendRoomMovedResponseStub = stub
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponseArgsForCall(i int) *livekit.RoomMovedResponse {
+	fake.sendRoomMovedResponseMutex.RLock()
+	defer fake.sendRoomMovedResponseMutex.RUnlock()
+	argsForCall := fake.sendRoomMovedResponseArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponseReturns(result1 error) {
+	fake.sendRoomMovedResponseMutex.Lock()
+	defer fake.sendRoomMovedResponseMutex.Unlock()
+	fake.SendRoomMovedResponseStub = nil
+	fake.sendRoomMovedResponseReturns = struct {
+		result1 error
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SendRoomMovedResponseReturnsOnCall(i int, result1 error) {
+	fake.sendRoomMovedResponseMutex.Lock()
+	defer fake.sendRoomMovedResponseMutex.Unlock()
+	fake.SendRoomMovedResponseStub = nil
+	if fake.sendRoomMovedResponseReturnsOnCall == nil {
+		fake.sendRoomMovedResponseReturnsOnCall = make(map[int]struct {
+			result1 error
+		})
+	}
+	fake.sendRoomMovedResponseReturnsOnCall[i] = struct {
+		result1 error
+	}{result1}
+}
+
 func (fake *FakeLocalParticipant) SendRoomUpdate(arg1 *livekit.Room) error {
 	fake.sendRoomUpdateMutex.Lock()
 	ret, specificReturn := fake.sendRoomUpdateReturnsOnCall[len(fake.sendRoomUpdateArgsForCall)]
@@ -4892,23 +6294,17 @@ func (fake *FakeLocalParticipant) SendSpeakerUpdateReturnsOnCall(i int, result1 
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) SetAttributes(arg1 map[string]string) error {
+func (fake *FakeLocalParticipant) SetAttributes(arg1 map[string]string) {
 	fake.setAttributesMutex.Lock()
-	ret, specificReturn := fake.setAttributesReturnsOnCall[len(fake.setAttributesArgsForCall)]
 	fake.setAttributesArgsForCall = append(fake.setAttributesArgsForCall, struct {
 		arg1 map[string]string
 	}{arg1})
 	stub := fake.SetAttributesStub
-	fakeReturns := fake.setAttributesReturns
 	fake.recordInvocation("SetAttributes", []interface{}{arg1})
 	fake.setAttributesMutex.Unlock()
 	if stub != nil {
-		return stub(arg1)
+		fake.SetAttributesStub(arg1)
 	}
-	if specificReturn {
-		return ret.result1
-	}
-	return fakeReturns.result1
 }
 
 func (fake *FakeLocalParticipant) SetAttributesCallCount() int {
@@ -4917,7 +6313,7 @@ func (fake *FakeLocalParticipant) SetAttributesCallCount() int {
 	return len(fake.setAttributesArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) SetAttributesCalls(stub func(map[string]string) error) {
+func (fake *FakeLocalParticipant) SetAttributesCalls(stub func(map[string]string)) {
 	fake.setAttributesMutex.Lock()
 	defer fake.setAttributesMutex.Unlock()
 	fake.SetAttributesStub = stub
@@ -4928,29 +6324,6 @@ func (fake *FakeLocalParticipant) SetAttributesArgsForCall(i int) map[string]str
 	defer fake.setAttributesMutex.RUnlock()
 	argsForCall := fake.setAttributesArgsForCall[i]
 	return argsForCall.arg1
-}
-
-func (fake *FakeLocalParticipant) SetAttributesReturns(result1 error) {
-	fake.setAttributesMutex.Lock()
-	defer fake.setAttributesMutex.Unlock()
-	fake.SetAttributesStub = nil
-	fake.setAttributesReturns = struct {
-		result1 error
-	}{result1}
-}
-
-func (fake *FakeLocalParticipant) SetAttributesReturnsOnCall(i int, result1 error) {
-	fake.setAttributesMutex.Lock()
-	defer fake.setAttributesMutex.Unlock()
-	fake.SetAttributesStub = nil
-	if fake.setAttributesReturnsOnCall == nil {
-		fake.setAttributesReturnsOnCall = make(map[int]struct {
-			result1 error
-		})
-	}
-	fake.setAttributesReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
 }
 
 func (fake *FakeLocalParticipant) SetICEConfig(arg1 *livekit.ICEConfig) {
@@ -5431,6 +6804,59 @@ func (fake *FakeLocalParticipant) StateReturnsOnCall(i int, result1 livekit.Part
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) StopAndGetSubscribedTracksForwarderState() map[livekit.TrackID]*livekit.RTPForwarderState {
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.Lock()
+	ret, specificReturn := fake.stopAndGetSubscribedTracksForwarderStateReturnsOnCall[len(fake.stopAndGetSubscribedTracksForwarderStateArgsForCall)]
+	fake.stopAndGetSubscribedTracksForwarderStateArgsForCall = append(fake.stopAndGetSubscribedTracksForwarderStateArgsForCall, struct {
+	}{})
+	stub := fake.StopAndGetSubscribedTracksForwarderStateStub
+	fakeReturns := fake.stopAndGetSubscribedTracksForwarderStateReturns
+	fake.recordInvocation("StopAndGetSubscribedTracksForwarderState", []interface{}{})
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) StopAndGetSubscribedTracksForwarderStateCallCount() int {
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.RLock()
+	defer fake.stopAndGetSubscribedTracksForwarderStateMutex.RUnlock()
+	return len(fake.stopAndGetSubscribedTracksForwarderStateArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) StopAndGetSubscribedTracksForwarderStateCalls(stub func() map[livekit.TrackID]*livekit.RTPForwarderState) {
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.Lock()
+	defer fake.stopAndGetSubscribedTracksForwarderStateMutex.Unlock()
+	fake.StopAndGetSubscribedTracksForwarderStateStub = stub
+}
+
+func (fake *FakeLocalParticipant) StopAndGetSubscribedTracksForwarderStateReturns(result1 map[livekit.TrackID]*livekit.RTPForwarderState) {
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.Lock()
+	defer fake.stopAndGetSubscribedTracksForwarderStateMutex.Unlock()
+	fake.StopAndGetSubscribedTracksForwarderStateStub = nil
+	fake.stopAndGetSubscribedTracksForwarderStateReturns = struct {
+		result1 map[livekit.TrackID]*livekit.RTPForwarderState
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) StopAndGetSubscribedTracksForwarderStateReturnsOnCall(i int, result1 map[livekit.TrackID]*livekit.RTPForwarderState) {
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.Lock()
+	defer fake.stopAndGetSubscribedTracksForwarderStateMutex.Unlock()
+	fake.StopAndGetSubscribedTracksForwarderStateStub = nil
+	if fake.stopAndGetSubscribedTracksForwarderStateReturnsOnCall == nil {
+		fake.stopAndGetSubscribedTracksForwarderStateReturnsOnCall = make(map[int]struct {
+			result1 map[livekit.TrackID]*livekit.RTPForwarderState
+		})
+	}
+	fake.stopAndGetSubscribedTracksForwarderStateReturnsOnCall[i] = struct {
+		result1 map[livekit.TrackID]*livekit.RTPForwarderState
+	}{result1}
+}
+
 func (fake *FakeLocalParticipant) SubscribeToTrack(arg1 livekit.TrackID) {
 	fake.subscribeToTrackMutex.Lock()
 	fake.subscribeToTrackArgsForCall = append(fake.subscribeToTrackArgsForCall, struct {
@@ -5604,6 +7030,112 @@ func (fake *FakeLocalParticipant) SubscriptionPermissionUpdateArgsForCall(i int)
 	defer fake.subscriptionPermissionUpdateMutex.RUnlock()
 	argsForCall := fake.subscriptionPermissionUpdateArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
+}
+
+func (fake *FakeLocalParticipant) SupportsCodecChange() bool {
+	fake.supportsCodecChangeMutex.Lock()
+	ret, specificReturn := fake.supportsCodecChangeReturnsOnCall[len(fake.supportsCodecChangeArgsForCall)]
+	fake.supportsCodecChangeArgsForCall = append(fake.supportsCodecChangeArgsForCall, struct {
+	}{})
+	stub := fake.SupportsCodecChangeStub
+	fakeReturns := fake.supportsCodecChangeReturns
+	fake.recordInvocation("SupportsCodecChange", []interface{}{})
+	fake.supportsCodecChangeMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) SupportsCodecChangeCallCount() int {
+	fake.supportsCodecChangeMutex.RLock()
+	defer fake.supportsCodecChangeMutex.RUnlock()
+	return len(fake.supportsCodecChangeArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) SupportsCodecChangeCalls(stub func() bool) {
+	fake.supportsCodecChangeMutex.Lock()
+	defer fake.supportsCodecChangeMutex.Unlock()
+	fake.SupportsCodecChangeStub = stub
+}
+
+func (fake *FakeLocalParticipant) SupportsCodecChangeReturns(result1 bool) {
+	fake.supportsCodecChangeMutex.Lock()
+	defer fake.supportsCodecChangeMutex.Unlock()
+	fake.SupportsCodecChangeStub = nil
+	fake.supportsCodecChangeReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SupportsCodecChangeReturnsOnCall(i int, result1 bool) {
+	fake.supportsCodecChangeMutex.Lock()
+	defer fake.supportsCodecChangeMutex.Unlock()
+	fake.SupportsCodecChangeStub = nil
+	if fake.supportsCodecChangeReturnsOnCall == nil {
+		fake.supportsCodecChangeReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.supportsCodecChangeReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SupportsMoving() bool {
+	fake.supportsMovingMutex.Lock()
+	ret, specificReturn := fake.supportsMovingReturnsOnCall[len(fake.supportsMovingArgsForCall)]
+	fake.supportsMovingArgsForCall = append(fake.supportsMovingArgsForCall, struct {
+	}{})
+	stub := fake.SupportsMovingStub
+	fakeReturns := fake.supportsMovingReturns
+	fake.recordInvocation("SupportsMoving", []interface{}{})
+	fake.supportsMovingMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) SupportsMovingCallCount() int {
+	fake.supportsMovingMutex.RLock()
+	defer fake.supportsMovingMutex.RUnlock()
+	return len(fake.supportsMovingArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) SupportsMovingCalls(stub func() bool) {
+	fake.supportsMovingMutex.Lock()
+	defer fake.supportsMovingMutex.Unlock()
+	fake.SupportsMovingStub = stub
+}
+
+func (fake *FakeLocalParticipant) SupportsMovingReturns(result1 bool) {
+	fake.supportsMovingMutex.Lock()
+	defer fake.supportsMovingMutex.Unlock()
+	fake.SupportsMovingStub = nil
+	fake.supportsMovingReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) SupportsMovingReturnsOnCall(i int, result1 bool) {
+	fake.supportsMovingMutex.Lock()
+	defer fake.supportsMovingMutex.Unlock()
+	fake.SupportsMovingStub = nil
+	if fake.supportsMovingReturnsOnCall == nil {
+		fake.supportsMovingReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.supportsMovingReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
 }
 
 func (fake *FakeLocalParticipant) SupportsSyncStreamID() bool {
@@ -6322,6 +7854,59 @@ func (fake *FakeLocalParticipant) UpdateVideoTrackReturnsOnCall(i int, result1 e
 	}{result1}
 }
 
+func (fake *FakeLocalParticipant) Verify() bool {
+	fake.verifyMutex.Lock()
+	ret, specificReturn := fake.verifyReturnsOnCall[len(fake.verifyArgsForCall)]
+	fake.verifyArgsForCall = append(fake.verifyArgsForCall, struct {
+	}{})
+	stub := fake.VerifyStub
+	fakeReturns := fake.verifyReturns
+	fake.recordInvocation("Verify", []interface{}{})
+	fake.verifyMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) VerifyCallCount() int {
+	fake.verifyMutex.RLock()
+	defer fake.verifyMutex.RUnlock()
+	return len(fake.verifyArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) VerifyCalls(stub func() bool) {
+	fake.verifyMutex.Lock()
+	defer fake.verifyMutex.Unlock()
+	fake.VerifyStub = stub
+}
+
+func (fake *FakeLocalParticipant) VerifyReturns(result1 bool) {
+	fake.verifyMutex.Lock()
+	defer fake.verifyMutex.Unlock()
+	fake.VerifyStub = nil
+	fake.verifyReturns = struct {
+		result1 bool
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) VerifyReturnsOnCall(i int, result1 bool) {
+	fake.verifyMutex.Lock()
+	defer fake.verifyMutex.Unlock()
+	fake.VerifyStub = nil
+	if fake.verifyReturnsOnCall == nil {
+		fake.verifyReturnsOnCall = make(map[int]struct {
+			result1 bool
+		})
+	}
+	fake.verifyReturnsOnCall[i] = struct {
+		result1 bool
+	}{result1}
+}
+
 func (fake *FakeLocalParticipant) VerifySubscribeParticipantInfo(arg1 livekit.ParticipantID, arg2 uint32) {
 	fake.verifySubscribeParticipantInfoMutex.Lock()
 	fake.verifySubscribeParticipantInfoArgsForCall = append(fake.verifySubscribeParticipantInfoArgsForCall, struct {
@@ -6353,6 +7938,59 @@ func (fake *FakeLocalParticipant) VerifySubscribeParticipantInfoArgsForCall(i in
 	defer fake.verifySubscribeParticipantInfoMutex.RUnlock()
 	argsForCall := fake.verifySubscribeParticipantInfoArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeLocalParticipant) Version() utils.TimedVersion {
+	fake.versionMutex.Lock()
+	ret, specificReturn := fake.versionReturnsOnCall[len(fake.versionArgsForCall)]
+	fake.versionArgsForCall = append(fake.versionArgsForCall, struct {
+	}{})
+	stub := fake.VersionStub
+	fakeReturns := fake.versionReturns
+	fake.recordInvocation("Version", []interface{}{})
+	fake.versionMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) VersionCallCount() int {
+	fake.versionMutex.RLock()
+	defer fake.versionMutex.RUnlock()
+	return len(fake.versionArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) VersionCalls(stub func() utils.TimedVersion) {
+	fake.versionMutex.Lock()
+	defer fake.versionMutex.Unlock()
+	fake.VersionStub = stub
+}
+
+func (fake *FakeLocalParticipant) VersionReturns(result1 utils.TimedVersion) {
+	fake.versionMutex.Lock()
+	defer fake.versionMutex.Unlock()
+	fake.VersionStub = nil
+	fake.versionReturns = struct {
+		result1 utils.TimedVersion
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) VersionReturnsOnCall(i int, result1 utils.TimedVersion) {
+	fake.versionMutex.Lock()
+	defer fake.versionMutex.Unlock()
+	fake.VersionStub = nil
+	if fake.versionReturnsOnCall == nil {
+		fake.versionReturnsOnCall = make(map[int]struct {
+			result1 utils.TimedVersion
+		})
+	}
+	fake.versionReturnsOnCall[i] = struct {
+		result1 utils.TimedVersion
+	}{result1}
 }
 
 func (fake *FakeLocalParticipant) WaitUntilSubscribed(arg1 time.Duration) error {
@@ -6489,12 +8127,14 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.addICECandidateMutex.RUnlock()
 	fake.addTrackMutex.RLock()
 	defer fake.addTrackMutex.RUnlock()
-	fake.addTrackToSubscriberMutex.RLock()
-	defer fake.addTrackToSubscriberMutex.RUnlock()
-	fake.addTransceiverFromTrackToSubscriberMutex.RLock()
-	defer fake.addTransceiverFromTrackToSubscriberMutex.RUnlock()
+	fake.addTrackLocalMutex.RLock()
+	defer fake.addTrackLocalMutex.RUnlock()
+	fake.addTransceiverFromTrackLocalMutex.RLock()
+	defer fake.addTransceiverFromTrackLocalMutex.RUnlock()
 	fake.cacheDownTrackMutex.RLock()
 	defer fake.cacheDownTrackMutex.RUnlock()
+	fake.canPublishMutex.RLock()
+	defer fake.canPublishMutex.RUnlock()
 	fake.canPublishDataMutex.RLock()
 	defer fake.canPublishDataMutex.RUnlock()
 	fake.canPublishSourceMutex.RLock()
@@ -6503,6 +8143,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.canSkipBroadcastMutex.RUnlock()
 	fake.canSubscribeMutex.RLock()
 	defer fake.canSubscribeMutex.RUnlock()
+	fake.checkMetadataLimitsMutex.RLock()
+	defer fake.checkMetadataLimitsMutex.RUnlock()
 	fake.claimGrantsMutex.RLock()
 	defer fake.claimGrantsMutex.RUnlock()
 	fake.closeMutex.RLock()
@@ -6519,6 +8161,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.disconnectedMutex.RUnlock()
 	fake.getAdaptiveStreamMutex.RLock()
 	defer fake.getAdaptiveStreamMutex.RUnlock()
+	fake.getAnswerMutex.RLock()
+	defer fake.getAnswerMutex.RUnlock()
 	fake.getAudioLevelMutex.RLock()
 	defer fake.getAudioLevelMutex.RUnlock()
 	fake.getBufferFactoryMutex.RLock()
@@ -6531,10 +8175,18 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.getClientInfoMutex.RUnlock()
 	fake.getConnectionQualityMutex.RLock()
 	defer fake.getConnectionQualityMutex.RUnlock()
-	fake.getICEConnectionDetailsMutex.RLock()
-	defer fake.getICEConnectionDetailsMutex.RUnlock()
+	fake.getDisableSenderReportPassThroughMutex.RLock()
+	defer fake.getDisableSenderReportPassThroughMutex.RUnlock()
+	fake.getEnabledPublishCodecsMutex.RLock()
+	defer fake.getEnabledPublishCodecsMutex.RUnlock()
+	fake.getICEConfigMutex.RLock()
+	defer fake.getICEConfigMutex.RUnlock()
+	fake.getICEConnectionInfoMutex.RLock()
+	defer fake.getICEConnectionInfoMutex.RUnlock()
 	fake.getLoggerMutex.RLock()
 	defer fake.getLoggerMutex.RUnlock()
+	fake.getLoggerResolverMutex.RLock()
+	defer fake.getLoggerResolverMutex.RUnlock()
 	fake.getPacerMutex.RLock()
 	defer fake.getPacerMutex.RUnlock()
 	fake.getPendingTrackMutex.RLock()
@@ -6545,6 +8197,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.getPublishedTrackMutex.RUnlock()
 	fake.getPublishedTracksMutex.RLock()
 	defer fake.getPublishedTracksMutex.RUnlock()
+	fake.getPublisherICESessionUfragMutex.RLock()
+	defer fake.getPublisherICESessionUfragMutex.RUnlock()
 	fake.getSubscribedParticipantsMutex.RLock()
 	defer fake.getSubscribedParticipantsMutex.RUnlock()
 	fake.getSubscribedTracksMutex.RLock()
@@ -6553,6 +8207,12 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.getTrailerMutex.RUnlock()
 	fake.handleAnswerMutex.RLock()
 	defer fake.handleAnswerMutex.RUnlock()
+	fake.handleICERestartSDPFragmentMutex.RLock()
+	defer fake.handleICERestartSDPFragmentMutex.RUnlock()
+	fake.handleICETrickleSDPFragmentMutex.RLock()
+	defer fake.handleICETrickleSDPFragmentMutex.RUnlock()
+	fake.handleMetricsMutex.RLock()
+	defer fake.handleMetricsMutex.RUnlock()
 	fake.handleOfferMutex.RLock()
 	defer fake.handleOfferMutex.RUnlock()
 	fake.handleReceiverReportMutex.RLock()
@@ -6573,6 +8233,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.iDMutex.RUnlock()
 	fake.identityMutex.RLock()
 	defer fake.identityMutex.RUnlock()
+	fake.isAgentMutex.RLock()
+	defer fake.isAgentMutex.RUnlock()
 	fake.isClosedMutex.RLock()
 	defer fake.isClosedMutex.RUnlock()
 	fake.isDependentMutex.RLock()
@@ -6585,10 +8247,14 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.isPublisherMutex.RUnlock()
 	fake.isReadyMutex.RLock()
 	defer fake.isReadyMutex.RUnlock()
+	fake.isReconnectMutex.RLock()
+	defer fake.isReconnectMutex.RUnlock()
 	fake.isRecorderMutex.RLock()
 	defer fake.isRecorderMutex.RUnlock()
 	fake.isSubscribedToMutex.RLock()
 	defer fake.isSubscribedToMutex.RUnlock()
+	fake.isTrackNameSubscribedMutex.RLock()
+	defer fake.isTrackNameSubscribedMutex.RUnlock()
 	fake.issueFullReconnectMutex.RLock()
 	defer fake.issueFullReconnectMutex.RUnlock()
 	fake.kindMutex.RLock()
@@ -6597,6 +8263,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.maybeStartMigrationMutex.RUnlock()
 	fake.migrateStateMutex.RLock()
 	defer fake.migrateStateMutex.RUnlock()
+	fake.moveToRoomMutex.RLock()
+	defer fake.moveToRoomMutex.RUnlock()
 	fake.negotiateMutex.RLock()
 	defer fake.negotiateMutex.RUnlock()
 	fake.notifyMigrationMutex.RLock()
@@ -6605,10 +8273,14 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.onClaimsChangedMutex.RUnlock()
 	fake.onCloseMutex.RLock()
 	defer fake.onCloseMutex.RUnlock()
+	fake.onDataMessageMutex.RLock()
+	defer fake.onDataMessageMutex.RUnlock()
 	fake.onDataPacketMutex.RLock()
 	defer fake.onDataPacketMutex.RUnlock()
 	fake.onICEConfigChangedMutex.RLock()
 	defer fake.onICEConfigChangedMutex.RUnlock()
+	fake.onMetricsMutex.RLock()
+	defer fake.onMetricsMutex.RUnlock()
 	fake.onMigrateStateChangeMutex.RLock()
 	defer fake.onMigrateStateChangeMutex.RUnlock()
 	fake.onParticipantUpdateMutex.RLock()
@@ -6617,6 +8289,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.onStateChangeMutex.RUnlock()
 	fake.onSubscribeStatusChangedMutex.RLock()
 	defer fake.onSubscribeStatusChangedMutex.RUnlock()
+	fake.onSubscriberReadyMutex.RLock()
+	defer fake.onSubscriberReadyMutex.RUnlock()
 	fake.onTrackPublishedMutex.RLock()
 	defer fake.onTrackPublishedMutex.RUnlock()
 	fake.onTrackUnpublishedMutex.RLock()
@@ -6627,18 +8301,24 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.protocolVersionMutex.RUnlock()
 	fake.removePublishedTrackMutex.RLock()
 	defer fake.removePublishedTrackMutex.RUnlock()
-	fake.removeTrackFromSubscriberMutex.RLock()
-	defer fake.removeTrackFromSubscriberMutex.RUnlock()
+	fake.removeTrackLocalMutex.RLock()
+	defer fake.removeTrackLocalMutex.RUnlock()
 	fake.sendConnectionQualityUpdateMutex.RLock()
 	defer fake.sendConnectionQualityUpdateMutex.RUnlock()
-	fake.sendDataPacketMutex.RLock()
-	defer fake.sendDataPacketMutex.RUnlock()
+	fake.sendDataMessageMutex.RLock()
+	defer fake.sendDataMessageMutex.RUnlock()
+	fake.sendDataMessageUnlabeledMutex.RLock()
+	defer fake.sendDataMessageUnlabeledMutex.RUnlock()
 	fake.sendJoinResponseMutex.RLock()
 	defer fake.sendJoinResponseMutex.RUnlock()
 	fake.sendParticipantUpdateMutex.RLock()
 	defer fake.sendParticipantUpdateMutex.RUnlock()
 	fake.sendRefreshTokenMutex.RLock()
 	defer fake.sendRefreshTokenMutex.RUnlock()
+	fake.sendRequestResponseMutex.RLock()
+	defer fake.sendRequestResponseMutex.RUnlock()
+	fake.sendRoomMovedResponseMutex.RLock()
+	defer fake.sendRoomMovedResponseMutex.RUnlock()
 	fake.sendRoomUpdateMutex.RLock()
 	defer fake.sendRoomUpdateMutex.RUnlock()
 	fake.sendSpeakerUpdateMutex.RLock()
@@ -6669,6 +8349,8 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.setTrackMutedMutex.RUnlock()
 	fake.stateMutex.RLock()
 	defer fake.stateMutex.RUnlock()
+	fake.stopAndGetSubscribedTracksForwarderStateMutex.RLock()
+	defer fake.stopAndGetSubscribedTracksForwarderStateMutex.RUnlock()
 	fake.subscribeToTrackMutex.RLock()
 	defer fake.subscribeToTrackMutex.RUnlock()
 	fake.subscriberAsPrimaryMutex.RLock()
@@ -6677,6 +8359,10 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.subscriptionPermissionMutex.RUnlock()
 	fake.subscriptionPermissionUpdateMutex.RLock()
 	defer fake.subscriptionPermissionUpdateMutex.RUnlock()
+	fake.supportsCodecChangeMutex.RLock()
+	defer fake.supportsCodecChangeMutex.RUnlock()
+	fake.supportsMovingMutex.RLock()
+	defer fake.supportsMovingMutex.RUnlock()
 	fake.supportsSyncStreamIDMutex.RLock()
 	defer fake.supportsSyncStreamIDMutex.RUnlock()
 	fake.supportsTransceiverReuseMutex.RLock()
@@ -6707,8 +8393,12 @@ func (fake *FakeLocalParticipant) Invocations() map[string][][]interface{} {
 	defer fake.updateSubscriptionPermissionMutex.RUnlock()
 	fake.updateVideoTrackMutex.RLock()
 	defer fake.updateVideoTrackMutex.RUnlock()
+	fake.verifyMutex.RLock()
+	defer fake.verifyMutex.RUnlock()
 	fake.verifySubscribeParticipantInfoMutex.RLock()
 	defer fake.verifySubscribeParticipantInfoMutex.RUnlock()
+	fake.versionMutex.RLock()
+	defer fake.versionMutex.RUnlock()
 	fake.waitUntilSubscribedMutex.RLock()
 	defer fake.waitUntilSubscribedMutex.RUnlock()
 	fake.writeSubscriberRTCPMutex.RLock()

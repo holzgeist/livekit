@@ -20,9 +20,9 @@ import (
 	"strings"
 
 	"github.com/pion/sdp/v3"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 
-	dd "github.com/livekit/livekit-server/pkg/sfu/rtpextension/dependencydescriptor"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/protocol/livekit"
 	lksdp "github.com/livekit/protocol/sdp"
 )
@@ -46,20 +46,20 @@ func (p *ParticipantImpl) setCodecPreferencesOpusRedForPublisher(offer webrtc.Se
 		}
 
 		p.pendingTracksLock.RLock()
-		_, info, _ := p.getPendingTrack(streamID, livekit.TrackType_AUDIO)
+		_, info, _, _ := p.getPendingTrack(streamID, livekit.TrackType_AUDIO, false)
 		// if RED is disabled for this track, don't prefer RED codec in offer
 		disableRed := info != nil && info.DisableRed
 		p.pendingTracksLock.RUnlock()
 
-		codecs, err := codecsFromMediaDescription(unmatchAudio)
+		codecs, err := lksdp.CodecsFromMediaDescription(unmatchAudio)
 		if err != nil {
-			p.pubLogger.Errorw("extract codecs from media section failed", err, "media", unmatchAudio)
+			p.pubLogger.Errorw("extract codecs from media section failed", err, "media", unmatchAudio, "offer", offer)
 			continue
 		}
 
 		var opusPayload uint8
 		for _, codec := range codecs {
-			if strings.EqualFold(codec.Name, "opus") {
+			if mime.IsMimeTypeCodecStringOpus(codec.Name) {
 				opusPayload = codec.PayloadType
 				break
 			}
@@ -71,7 +71,7 @@ func (p *ParticipantImpl) setCodecPreferencesOpusRedForPublisher(offer webrtc.Se
 		var preferredCodecs, leftCodecs []string
 		for _, codec := range codecs {
 			// codec contain opus/red
-			if !disableRed && strings.EqualFold(codec.Name, "red") && strings.Contains(codec.Fmtp, strconv.FormatInt(int64(opusPayload), 10)) {
+			if !disableRed && mime.IsMimeTypeCodecStringRED(codec.Name) && strings.Contains(codec.Fmtp, strconv.FormatInt(int64(opusPayload), 10)) {
 				preferredCodecs = append(preferredCodecs, strconv.FormatInt(int64(codec.PayloadType), 10))
 			} else {
 				leftCodecs = append(leftCodecs, strconv.FormatInt(int64(codec.PayloadType), 10))
@@ -132,48 +132,35 @@ func (p *ParticipantImpl) setCodecPreferencesVideoForPublisher(offer webrtc.Sess
 		if mt != nil {
 			info = mt.ToProto()
 		} else {
-			_, info, _ = p.getPendingTrack(streamID, livekit.TrackType_VIDEO)
+			_, info, _, _ = p.getPendingTrack(streamID, livekit.TrackType_VIDEO, false)
 		}
 
 		if info == nil {
 			p.pendingTracksLock.RUnlock()
 			continue
 		}
-		var mime string
+		var mimeType string
 		for _, c := range info.Codecs {
 			if c.Cid == streamID {
-				mime = c.MimeType
+				mimeType = c.MimeType
 				break
 			}
 		}
-		if mime == "" && len(info.Codecs) > 0 {
-			mime = info.Codecs[0].MimeType
+		if mimeType == "" && len(info.Codecs) > 0 {
+			mimeType = info.Codecs[0].MimeType
 		}
 		p.pendingTracksLock.RUnlock()
 
-		mime = strings.ToUpper(mime)
-		// remove dd extension if av1/vp9 not preferred
-		if !strings.Contains(strings.ToLower(mime), "av1") && !strings.Contains(strings.ToLower(mime), "vp9") {
-			for i, attr := range unmatchVideo.Attributes {
-				if strings.Contains(attr.Value, dd.ExtensionURI) {
-					unmatchVideo.Attributes[i] = unmatchVideo.Attributes[len(unmatchVideo.Attributes)-1]
-					unmatchVideo.Attributes[len(unmatchVideo.Attributes)-1] = sdp.Attribute{}
-					unmatchVideo.Attributes = unmatchVideo.Attributes[:len(unmatchVideo.Attributes)-1]
-					break
-				}
-			}
-		}
-
-		if mime != "" {
-			codecs, err := codecsFromMediaDescription(unmatchVideo)
+		if mimeType != "" {
+			codecs, err := lksdp.CodecsFromMediaDescription(unmatchVideo)
 			if err != nil {
-				p.pubLogger.Errorw("extract codecs from media section failed", err, "media", unmatchVideo)
+				p.pubLogger.Errorw("extract codecs from media section failed", err, "media", unmatchVideo, "offer", offer)
 				continue
 			}
 
 			var preferredCodecs, leftCodecs []string
 			for _, c := range codecs {
-				if strings.HasSuffix(mime, strings.ToUpper(c.Name)) {
+				if mime.GetMimeTypeCodec(mimeType) == mime.NormalizeMimeTypeCodec(c.Name) {
 					preferredCodecs = append(preferredCodecs, strconv.FormatInt(int64(c.PayloadType), 10))
 				} else {
 					leftCodecs = append(leftCodecs, strconv.FormatInt(int64(c.PayloadType), 10))
@@ -240,7 +227,7 @@ func (p *ParticipantImpl) configurePublisherAnswer(answer webrtc.SessionDescript
 					track, _ := p.getPublishedTrackBySdpCid(streamID).(*MediaTrack)
 					if track == nil {
 						p.pendingTracksLock.RLock()
-						_, ti, _ = p.getPendingTrack(streamID, livekit.TrackType_AUDIO)
+						_, ti, _, _ = p.getPendingTrack(streamID, livekit.TrackType_AUDIO, false)
 						p.pendingTracksLock.RUnlock()
 					} else {
 						ti = track.ToProto()
@@ -254,7 +241,7 @@ func (p *ParticipantImpl) configurePublisherAnswer(answer webrtc.SessionDescript
 				continue
 			}
 
-			opusPT, err := parsed.GetPayloadTypeForCodec(sdp.Codec{Name: "opus"})
+			opusPT, err := parsed.GetPayloadTypeForCodec(sdp.Codec{Name: mime.MimeTypeCodecOpus.String()})
 			if err != nil {
 				p.pubLogger.Infow("failed to get opus payload type", "error", err, "trackID", ti.Sid)
 				continue

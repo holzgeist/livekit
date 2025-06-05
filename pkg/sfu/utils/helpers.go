@@ -17,11 +17,11 @@ package utils
 import (
 	"errors"
 	"fmt"
-	"strings"
 
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 // Do a fuzzy find for a codec in the list of codecs
@@ -29,7 +29,7 @@ import (
 func CodecParametersFuzzySearch(needle webrtc.RTPCodecParameters, haystack []webrtc.RTPCodecParameters) (webrtc.RTPCodecParameters, error) {
 	// First attempt to match on MimeType + SDPFmtpLine
 	for _, c := range haystack {
-		if strings.EqualFold(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) &&
+		if mime.IsMimeTypeStringEqual(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) &&
 			c.RTPCodecCapability.SDPFmtpLine == needle.RTPCodecCapability.SDPFmtpLine {
 			return c, nil
 		}
@@ -37,12 +37,24 @@ func CodecParametersFuzzySearch(needle webrtc.RTPCodecParameters, haystack []web
 
 	// Fallback to just MimeType
 	for _, c := range haystack {
-		if strings.EqualFold(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) {
+		if mime.IsMimeTypeStringEqual(c.RTPCodecCapability.MimeType, needle.RTPCodecCapability.MimeType) {
 			return c, nil
 		}
 	}
 
 	return webrtc.RTPCodecParameters{}, webrtc.ErrCodecNotFound
+}
+
+// Given a CodecParameters find the RTX CodecParameters if one exists
+func FindRTXPayloadType(needle webrtc.PayloadType, haystack []webrtc.RTPCodecParameters) webrtc.PayloadType {
+	aptStr := fmt.Sprintf("apt=%d", needle)
+	for _, c := range haystack {
+		if aptStr == c.SDPFmtpLine {
+			return c.PayloadType
+		}
+	}
+
+	return webrtc.PayloadType(0)
 }
 
 // GetHeaderExtensionID returns the ID of a header extension, or 0 if not found

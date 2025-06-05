@@ -22,14 +22,13 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/thoas/go-funk"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
@@ -42,6 +41,8 @@ import (
 	"github.com/livekit/livekit-server/pkg/rtc"
 	"github.com/livekit/livekit-server/pkg/rtc/transport/transportfakes"
 	"github.com/livekit/livekit-server/pkg/rtc/types"
+	"github.com/livekit/livekit-server/pkg/sfu/buffer"
+	"github.com/livekit/livekit-server/pkg/sfu/mime"
 )
 
 type SignalRequestHandler func(msg *livekit.SignalRequest) error
@@ -69,6 +70,8 @@ type RTCClient struct {
 	signalRequestInterceptor  SignalRequestInterceptor
 	signalResponseInterceptor SignalResponseInterceptor
 
+	icQueue [2]atomic.Pointer[webrtc.ICECandidate]
+
 	subscriberAsPrimary        atomic.Bool
 	publisherFullyEstablished  atomic.Bool
 	subscriberFullyEstablished atomic.Bool
@@ -78,10 +81,11 @@ type RTCClient struct {
 	// tracks waiting to be acked, cid => trackInfo
 	pendingPublishedTracks map[string]*livekit.TrackInfo
 
-	pendingTrackWriters []*TrackWriter
-	OnConnected         func()
-	OnDataReceived      func(data []byte, sid string)
-	refreshToken        string
+	pendingTrackWriters     []*TrackWriter
+	OnConnected             func()
+	OnDataReceived          func(data []byte, sid string)
+	OnDataUnlabeledReceived func(data []byte)
+	refreshToken            string
 
 	// map of livekit.ParticipantID and last packet
 	lastPackets   map[livekit.ParticipantID]*rtp.Packet
@@ -100,9 +104,9 @@ var (
 		},
 	}
 	extMimeMapping = map[string]string{
-		".ivf":  webrtc.MimeTypeVP8,
-		".h264": webrtc.MimeTypeH264,
-		".ogg":  webrtc.MimeTypeOpus,
+		".ivf":  mime.MimeTypeVP8.String(),
+		".h264": mime.MimeTypeH264.String(),
+		".ogg":  mime.MimeTypeOpus.String(),
 	}
 )
 
@@ -125,6 +129,7 @@ func NewWebSocketConn(host, token string, opts *Options) (*websocket.Conn, error
 	SetAuthorizationToken(requestHeader, token)
 
 	connectUrl := u.String()
+	sdk := "go"
 	if opts != nil {
 		connectUrl = fmt.Sprintf("%s&auto_subscribe=%t", connectUrl, opts.AutoSubscribe)
 		if opts.Publish != "" {
@@ -137,8 +142,12 @@ func NewWebSocketConn(host, token string, opts *Options) (*websocket.Conn, error
 			if opts.ClientInfo.Os != "" {
 				connectUrl += encodeQueryParam("os", opts.ClientInfo.Os)
 			}
+			if opts.ClientInfo.Sdk != livekit.ClientInfo_UNKNOWN {
+				sdk = opts.ClientInfo.Sdk.String()
+			}
 		}
 	}
+	connectUrl += encodeQueryParam("sdk", sdk)
 	conn, _, err := websocket.DefaultDialer.Dial(connectUrl, requestHeader)
 	return conn, err
 }
@@ -170,6 +179,8 @@ func NewRTCClient(conn *websocket.Conn, opts *Options) (*RTCClient, error) {
 	}
 	conf.SettingEngine.SetLite(false)
 	conf.SettingEngine.SetAnsweringDTLSRole(webrtc.DTLSRoleClient)
+	ff := buffer.NewFactoryOfBufferFactory(500, 200)
+	conf.SetBufferFactory(ff.CreateBufferFactory())
 	var codecs []*livekit.Codec
 	for _, codec := range []*livekit.Codec{
 		{
@@ -185,7 +196,7 @@ func NewRTCClient(conn *websocket.Conn, opts *Options) (*RTCClient, error) {
 		var disabled bool
 		if opts != nil {
 			for _, dc := range opts.DisabledCodecs {
-				if strings.EqualFold(dc.MimeType, codec.Mime) && (dc.SDPFmtpLine == "" || dc.SDPFmtpLine == codec.FmtpLine) {
+				if mime.IsMimeTypeStringEqual(dc.MimeType, codec.Mime) && (dc.SDPFmtpLine == "" || dc.SDPFmtpLine == codec.FmtpLine) {
 					disabled = true
 					break
 				}
@@ -204,31 +215,31 @@ func NewRTCClient(conn *websocket.Conn, opts *Options) (*RTCClient, error) {
 	//
 	publisherHandler := &transportfakes.FakeHandler{}
 	c.publisher, err = rtc.NewPCTransport(rtc.TransportParams{
-		Config:          &conf,
-		DirectionConfig: conf.Subscriber,
-		EnabledCodecs:   codecs,
-		IsOfferer:       true,
-		IsSendSide:      true,
-		Handler:         publisherHandler,
+		Config:                   &conf,
+		DirectionConfig:          conf.Subscriber,
+		EnabledCodecs:            codecs,
+		IsOfferer:                true,
+		IsSendSide:               true,
+		Handler:                  publisherHandler,
+		DatachannelSlowThreshold: 1024 * 1024 * 1024,
 	})
 	if err != nil {
 		return nil, err
 	}
 	subscriberHandler := &transportfakes.FakeHandler{}
 	c.subscriber, err = rtc.NewPCTransport(rtc.TransportParams{
-		Config:          &conf,
-		DirectionConfig: conf.Publisher,
-		EnabledCodecs:   codecs,
-		Handler:         subscriberHandler,
+		Config:                           &conf,
+		DirectionConfig:                  conf.Publisher,
+		EnabledCodecs:                    codecs,
+		Handler:                          subscriberHandler,
+		DatachannelMaxReceiverBufferSize: 1500,
+		FireOnTrackBySdp:                 true,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	publisherHandler.OnICECandidateCalls(func(ic *webrtc.ICECandidate, t livekit.SignalTarget) error {
-		if ic == nil {
-			return nil
-		}
 		return c.SendIceCandidate(ic, livekit.SignalTarget_PUBLISHER)
 	})
 	publisherHandler.OnOfferCalls(c.onOffer)
@@ -244,10 +255,23 @@ func NewRTCClient(conn *websocket.Conn, opts *Options) (*RTCClient, error) {
 		return nil, err
 	}
 
+	ordered = false
 	maxRetransmits := uint16(0)
 	if err := c.publisher.CreateDataChannel(rtc.LossyDataChannel, &webrtc.DataChannelInit{
 		Ordered:        &ordered,
 		MaxRetransmits: &maxRetransmits,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := c.publisher.CreateDataChannel("pubraw", &webrtc.DataChannelInit{
+		Ordered: &ordered,
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := c.subscriber.CreateReadableDataChannel("subraw", &webrtc.DataChannelInit{
+		Ordered: &ordered,
 	}); err != nil {
 		return nil, err
 	}
@@ -261,7 +285,8 @@ func NewRTCClient(conn *websocket.Conn, opts *Options) (*RTCClient, error) {
 	subscriberHandler.OnTrackCalls(func(track *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
 		go c.processTrack(track)
 	})
-	subscriberHandler.OnDataPacketCalls(c.handleDataMessage)
+	subscriberHandler.OnDataMessageCalls(c.handleDataMessage)
+	subscriberHandler.OnDataMessageUnlabeledCalls(c.handleDataMessageUnlabeled)
 	subscriberHandler.OnInitialConnectedCalls(func() {
 		logger.Debugw("subscriber initial connected", "participant", c.localParticipant.Identity)
 
@@ -556,11 +581,14 @@ func (c *RTCClient) sendRequest(msg *livekit.SignalRequest) error {
 }
 
 func (c *RTCClient) SendIceCandidate(ic *webrtc.ICECandidate, target livekit.SignalTarget) error {
-	trickle := rtc.ToProtoTrickle(ic.ToJSON())
-	trickle.Target = target
+	prevIC := c.icQueue[target].Swap(ic)
+	if prevIC == nil {
+		return nil
+	}
+
 	return c.SendRequest(&livekit.SignalRequest{
 		Message: &livekit.SignalRequest_Trickle{
-			Trickle: trickle,
+			Trickle: rtc.ToProtoTrickle(prevIC.ToJSON(), target, ic == nil),
 		},
 	})
 }
@@ -583,7 +611,23 @@ func (c *RTCClient) hasPrimaryEverConnected() bool {
 	}
 }
 
-func (c *RTCClient) AddTrack(track *webrtc.TrackLocalStaticSample, path string) (writer *TrackWriter, err error) {
+type AddTrackParams struct {
+	NoWriter bool
+}
+
+type AddTrackOption func(params *AddTrackParams)
+
+func AddTrackNoWriter() AddTrackOption {
+	return func(params *AddTrackParams) {
+		params.NoWriter = true
+	}
+}
+
+func (c *RTCClient) AddTrack(track *webrtc.TrackLocalStaticSample, path string, opts ...AddTrackOption) (writer *TrackWriter, err error) {
+	var params AddTrackParams
+	for _, opt := range opts {
+		opt(&params)
+	}
 	trackType := livekit.TrackType_AUDIO
 	if track.Kind() == webrtc.RTPCodecTypeVideo {
 		trackType = livekit.TrackType_VIDEO
@@ -625,29 +669,32 @@ func (c *RTCClient) AddTrack(track *webrtc.TrackLocalStaticSample, path string) 
 	c.localTracks[ti.Sid] = track
 	c.trackSenders[ti.Sid] = sender
 	c.publisher.Negotiate(false)
-	writer = NewTrackWriter(c.ctx, track, path)
 
-	// write tracks only after connection established
-	if c.hasPrimaryEverConnected() {
-		err = writer.Start()
-	} else {
-		c.pendingTrackWriters = append(c.pendingTrackWriters, writer)
+	if !params.NoWriter {
+		writer = NewTrackWriter(c.ctx, track, path)
+
+		// write tracks only after connection established
+		if c.hasPrimaryEverConnected() {
+			err = writer.Start()
+		} else {
+			c.pendingTrackWriters = append(c.pendingTrackWriters, writer)
+		}
 	}
 
 	return
 }
 
-func (c *RTCClient) AddStaticTrack(mime string, id string, label string) (writer *TrackWriter, err error) {
-	return c.AddStaticTrackWithCodec(webrtc.RTPCodecCapability{MimeType: mime}, id, label)
+func (c *RTCClient) AddStaticTrack(mime string, id string, label string, opts ...AddTrackOption) (writer *TrackWriter, err error) {
+	return c.AddStaticTrackWithCodec(webrtc.RTPCodecCapability{MimeType: mime}, id, label, opts...)
 }
 
-func (c *RTCClient) AddStaticTrackWithCodec(codec webrtc.RTPCodecCapability, id string, label string) (writer *TrackWriter, err error) {
+func (c *RTCClient) AddStaticTrackWithCodec(codec webrtc.RTPCodecCapability, id string, label string, opts ...AddTrackOption) (writer *TrackWriter, err error) {
 	track, err := webrtc.NewTrackLocalStaticSample(codec, id, label)
 	if err != nil {
 		return
 	}
 
-	return c.AddTrack(track, "")
+	return c.AddTrack(track, "", opts...)
 }
 
 func (c *RTCClient) AddFileTrack(path string, id string, label string) (writer *TrackWriter, err error) {
@@ -692,7 +739,6 @@ func (c *RTCClient) PublishData(data []byte, kind livekit.DataPacket_Kind) error
 	}
 
 	dpData, err := proto.Marshal(&livekit.DataPacket{
-		Kind: kind,
 		Value: &livekit.DataPacket_User{
 			User: &livekit.UserPacket{Payload: data},
 		},
@@ -701,7 +747,15 @@ func (c *RTCClient) PublishData(data []byte, kind livekit.DataPacket_Kind) error
 		return err
 	}
 
-	return c.publisher.SendDataPacket(kind, dpData)
+	return c.publisher.SendDataMessage(kind, dpData)
+}
+
+func (c *RTCClient) PublishDataUnlabeled(data []byte) error {
+	if err := c.ensurePublisherConnected(); err != nil {
+		return err
+	}
+
+	return c.publisher.SendDataMessageUnlabeled(data, true, "test")
 }
 
 func (c *RTCClient) GetPublishedTrackIDs() []string {
@@ -756,6 +810,12 @@ func (c *RTCClient) handleDataMessage(kind livekit.DataPacket_Kind, data []byte)
 	}
 }
 
+func (c *RTCClient) handleDataMessageUnlabeled(data []byte) {
+	if c.OnDataUnlabeledReceived != nil {
+		c.OnDataUnlabeledReceived(data)
+	}
+}
+
 // handles a server initiated offer, handle on subscriber PC
 func (c *RTCClient) handleOffer(desc webrtc.SessionDescription) {
 	c.subscriber.HandleRemoteDescription(desc)
@@ -794,6 +854,7 @@ func (c *RTCClient) processTrack(track *webrtc.TrackRemote) {
 	logger.Infow("client added track", "participant", c.localParticipant.Identity,
 		"pID", pId,
 		"trackID", trackId,
+		"codec", track.Codec(),
 	)
 
 	defer func() {

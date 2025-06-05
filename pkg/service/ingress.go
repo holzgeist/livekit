@@ -41,7 +41,6 @@ type IngressService struct {
 	psrpcClient rpc.IngressClient
 	store       IngressStore
 	io          IOClient
-	roomService livekit.RoomService
 	telemetry   telemetry.TelemetryService
 	launcher    IngressLauncher
 }
@@ -53,7 +52,6 @@ func NewIngressServiceWithIngressLauncher(
 	psrpcClient rpc.IngressClient,
 	store IngressStore,
 	io IOClient,
-	rs livekit.RoomService,
 	ts telemetry.TelemetryService,
 	launcher IngressLauncher,
 ) *IngressService {
@@ -65,7 +63,6 @@ func NewIngressServiceWithIngressLauncher(
 		psrpcClient: psrpcClient,
 		store:       store,
 		io:          io,
-		roomService: rs,
 		telemetry:   ts,
 		launcher:    launcher,
 	}
@@ -78,10 +75,9 @@ func NewIngressService(
 	psrpcClient rpc.IngressClient,
 	store IngressStore,
 	io IOClient,
-	rs livekit.RoomService,
 	ts telemetry.TelemetryService,
 ) *IngressService {
-	s := NewIngressServiceWithIngressLauncher(conf, nodeID, bus, psrpcClient, store, io, rs, ts, nil)
+	s := NewIngressServiceWithIngressLauncher(conf, nodeID, bus, psrpcClient, store, io, ts, nil)
 
 	s.launcher = s
 
@@ -163,6 +159,7 @@ func (s *IngressService) CreateIngressWithUrl(ctx context.Context, urlStr string
 		ParticipantName:     req.ParticipantName,
 		ParticipantMetadata: req.ParticipantMetadata,
 		State:               &livekit.IngressState{},
+		Enabled:             req.Enabled,
 	}
 
 	switch req.InputType {
@@ -193,20 +190,19 @@ func (s *IngressService) CreateIngressWithUrl(ctx context.Context, urlStr string
 		if err != nil {
 			return info, err
 		}
-	}
-
-	// TODO Remove this store Ingress call for URL pull as it is redundant since
-	// the ingress service sends a CreateIngress RPC
-	_, err = s.io.CreateIngress(ctx, info)
-	switch err {
-	case nil:
-		break
-	case ingress.ErrIngressOutOfDate:
-		// Error returned if the ingress was already created by the ingress service
-		err = nil
-	default:
-		logger.Errorw("could not create ingress object", err)
-		return nil, err
+		// The Ingress instance will create the ingress object when handling the URL pull ingress
+	} else {
+		_, err = s.io.CreateIngress(ctx, info)
+		switch err {
+		case nil:
+			break
+		case ingress.ErrIngressOutOfDate:
+			// Error returned if the ingress was already created by the ingress service
+			err = nil
+		default:
+			logger.Errorw("could not create ingress object", err)
+			return nil, err
+		}
 	}
 
 	return info, nil
@@ -263,6 +259,10 @@ func updateInfoUsingRequest(req *livekit.UpdateIngressRequest, info *livekit.Ing
 	}
 	if req.Video != nil {
 		info.Video = req.Video
+	}
+
+	if req.Enabled != nil {
+		info.Enabled = req.Enabled
 	}
 
 	if err := ingress.ValidateForSerialization(info); err != nil {

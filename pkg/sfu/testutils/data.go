@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/pion/rtp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
 )
@@ -66,7 +66,7 @@ func GetTestExtPacket(params *TestExtPacketParams) (*buffer.ExtPacket, error) {
 		VideoLayer:        params.VideoLayer,
 		ExtSequenceNumber: uint64(params.SNCycles<<16) + uint64(params.SequenceNumber),
 		ExtTimestamp:      uint64(params.TSCycles<<32) + uint64(params.Timestamp),
-		Arrival:           params.ArrivalTime,
+		Arrival:           params.ArrivalTime.UnixNano(),
 		Packet:            &packet,
 		KeyFrame:          params.IsKeyFrame,
 		RawPacket:         raw,
@@ -85,6 +85,9 @@ func GetTestExtPacketVP8(params *TestExtPacketParams, vp8 *buffer.VP8) (*buffer.
 
 	ep.KeyFrame = vp8.IsKeyFrame
 	ep.Payload = *vp8
+	if ep.DependencyDescriptor == nil {
+		ep.Temporal = int32(vp8.TID)
+	}
 	return ep, nil
 }
 
