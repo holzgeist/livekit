@@ -1198,6 +1198,11 @@ func (r *Room) onTrackUnpublished(p types.LocalParticipant, track types.MediaTra
 
 func (r *Room) onParticipantUpdate(p types.LocalParticipant) {
 	r.protoProxy.MarkDirty(false)
+	r.telemetry.ParticipantUpdated(
+		context.Background(),
+		r.ToProto(),
+		p.ToProto(),
+	)
 	// immediately notify when permissions or metadata changed
 	r.broadcastParticipantState(p, broadcastOptions{immediate: true})
 	if r.onParticipantChanged != nil {

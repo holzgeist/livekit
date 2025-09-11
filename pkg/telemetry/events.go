@@ -139,6 +139,17 @@ func (t *telemetryService) ParticipantActive(
 	})
 }
 
+func (t *telemetryService) ParticipantUpdated(
+	ctx context.Context,
+	room *livekit.Room,
+	participant *livekit.ParticipantInfo,
+) {
+	t.enqueue(func() {
+		ev := newParticipantEvent(livekit.AnalyticsEventType_PARTICIPANT_UPDATED, room, participant)
+		t.SendEvent(ctx, ev)
+	})
+}
+
 func (t *telemetryService) ParticipantResumed(
 	ctx context.Context,
 	room *livekit.Room,

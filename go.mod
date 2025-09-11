@@ -146,6 +146,8 @@ require (
 	golang.org/x/tools v0.36.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250826171959-ef028d996bc1 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250826171959-ef028d996bc1 // indirect
-	google.golang.org/grpc v1.75.0 // indirect
+	google.golang.org/grpc v1.75.0
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+replace github.com/livekit/protocol v1.41.1-0.20250902155548-e46b3f58f6a7 => github.com/holzgeist/livekit-protocol v1.41.1-0.20250910101140-64fb9d24f461

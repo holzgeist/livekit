@@ -40,6 +40,8 @@ type TelemetryService interface {
 	ParticipantJoined(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, clientInfo *livekit.ClientInfo, clientMeta *livekit.AnalyticsClientMeta, shouldSendEvent bool)
 	// ParticipantActive - a participant establishes media connection
 	ParticipantActive(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, clientMeta *livekit.AnalyticsClientMeta, isMigration bool)
+	// ParticipantUpdated - a participant changed
+	ParticipantUpdated(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo)
 	// ParticipantResumed - there has been an ICE restart or connection resume attempt, and we've received their signal connection
 	ParticipantResumed(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, nodeID livekit.NodeID, reason livekit.ReconnectReason)
 	// ParticipantLeft - the participant leaves the room, only sent if ParticipantActive has been called before
