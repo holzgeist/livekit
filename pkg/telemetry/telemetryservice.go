@@ -104,6 +104,8 @@ func (n NullTelemetryService) ParticipantJoined(ctx context.Context, room *livek
 }
 func (n NullTelemetryService) ParticipantActive(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, clientMeta *livekit.AnalyticsClientMeta, isMigration bool, guard *ReferenceGuard) {
 }
+func (n NullTelemetryService) ParticipantUpdated(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo) {
+}
 func (n NullTelemetryService) ParticipantResumed(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, nodeID livekit.NodeID, reason livekit.ReconnectReason) {
 }
 func (n NullTelemetryService) ParticipantLeft(ctx context.Context, room *livekit.Room, participant *livekit.ParticipantInfo, shouldSendEvent bool, guard *ReferenceGuard) {
