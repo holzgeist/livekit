@@ -45,6 +45,10 @@ func (c ClientInfo) isAndroid() bool {
 	return c.ClientInfo != nil && strings.EqualFold(c.ClientInfo.Os, "android")
 }
 
+func (c ClientInfo) isOBS() bool {
+	return c.ClientInfo != nil && strings.Contains(c.ClientInfo.Browser, "OBS")
+}
+
 func (c ClientInfo) SupportsAudioRED() bool {
 	return !c.isFirefox() && !c.isSafari()
 }
@@ -121,7 +125,7 @@ func (c ClientInfo) compareVersion(version string) int {
 	parts1 := strings.Split(version, ".")
 	ints0 := make([]int, 3)
 	ints1 := make([]int, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if len(parts0) > i {
 			ints0[i], _ = strconv.Atoi(parts0[i])
 		}

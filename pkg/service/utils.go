@@ -27,6 +27,7 @@ import (
 	"sync"
 
 	"github.com/ua-parser/uap-go/uaparser"
+	"gopkg.in/yaml.v3"
 
 	"github.com/livekit/livekit-server/pkg/config"
 	"github.com/livekit/livekit-server/pkg/routing"
@@ -38,7 +39,7 @@ import (
 	"github.com/livekit/protocol/logger"
 )
 
-func handleError(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...interface{}) {
+func handleError(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...any) {
 	keysAndValues = append(keysAndValues, "status", status)
 	if r != nil && r.URL != nil {
 		keysAndValues = append(keysAndValues, "method", r.Method, "path", r.URL.Path)
@@ -49,12 +50,12 @@ func handleError(w http.ResponseWriter, r *http.Request, status int, err error, 
 	w.WriteHeader(status)
 }
 
-func HandleError(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...interface{}) {
+func HandleError(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...any) {
 	handleError(w, r, status, err, keysAndValues...)
 	_, _ = w.Write([]byte(err.Error()))
 }
 
-func HandleErrorJson(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...interface{}) {
+func HandleErrorJson(w http.ResponseWriter, r *http.Request, status int, err error, keysAndValues ...any) {
 	handleError(w, r, status, err, keysAndValues...)
 	json.NewEncoder(w).Encode(struct {
 		Error string `json:"error"`
@@ -162,9 +163,37 @@ var (
 	userAgentParserInit  sync.Once
 )
 
+func createUserAgentParserWithCustomRules() (*uaparser.Parser, error) {
+	defaultYaml := uaparser.DefinitionYaml
+
+	rules := make(map[string]any)
+	err := yaml.Unmarshal(defaultYaml, rules)
+	if err != nil {
+		return nil, err
+	}
+
+	rules["user_agent_parsers"] = append(rules["user_agent_parsers"].([]any), map[string]any{
+		"regex":              "OBS-Studio\\/([0-9\\.]+)",
+		"family_replacement": "OBS Studio",
+		"v1_replacement":     "$1",
+	})
+
+	customYaml, err := yaml.Marshal(rules)
+	if err != nil {
+		return nil, err
+	}
+
+	return uaparser.NewFromBytes([]byte(customYaml))
+}
+
 func getUserAgentParser() *uaparser.Parser {
 	userAgentParserInit.Do(func() {
-		userAgentParserCache = uaparser.NewFromSaved()
+		if parser, err := createUserAgentParserWithCustomRules(); err != nil {
+			logger.Warnw("could not create user agent parser with custom rules, using default", err)
+			userAgentParserCache = uaparser.NewFromSaved()
+		} else {
+			userAgentParserCache = parser
+		}
 	})
 	return userAgentParserCache
 }
@@ -177,7 +206,8 @@ func AugmentClientInfo(ci *livekit.ClientInfo, req *http.Request) {
 	if ci.Sdk == livekit.ClientInfo_JS ||
 		ci.Sdk == livekit.ClientInfo_REACT_NATIVE ||
 		ci.Sdk == livekit.ClientInfo_FLUTTER ||
-		ci.Sdk == livekit.ClientInfo_UNITY {
+		ci.Sdk == livekit.ClientInfo_UNITY ||
+		ci.Sdk == livekit.ClientInfo_UNKNOWN {
 		client := getUserAgentParser().Parse(req.UserAgent())
 		if ci.Browser == "" {
 			ci.Browser = client.UserAgent.Family

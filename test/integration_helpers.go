@@ -154,6 +154,7 @@ func createSingleNodeServer(configUpdater func(*config.Config)) *service.Livekit
 		panic(fmt.Sprintf("could not create config: %v", err))
 	}
 	conf.Keys = map[string]string{testApiKey: testApiSecret}
+	conf.EnableDataTracks = true
 	if configUpdater != nil {
 		configUpdater(conf)
 	}
@@ -184,6 +185,7 @@ func createMultiNodeServer(nodeID string, port uint32) *service.LivekitServer {
 	conf.RTC.TCPPort = port + 2
 	conf.Redis.Address = "localhost:6379"
 	conf.Keys = map[string]string{testApiKey: testApiSecret}
+	conf.EnableDataTracks = true
 
 	currentNode, err := routing.NewLocalNode(conf)
 	if err != nil {
@@ -201,33 +203,77 @@ func createMultiNodeServer(nodeID string, port uint32) *service.LivekitServer {
 	return s
 }
 
+type testRTCServicePath int
+
+const (
+	testRTCServicePathv0 testRTCServicePath = iota
+	testRTCServicePathv0SinglePeerConnection
+	testRTCServicePathv1
+)
+
+func (t testRTCServicePath) String() string {
+	switch t {
+	case testRTCServicePathv0:
+		return "v0"
+	case testRTCServicePathv0SinglePeerConnection:
+		return "v0-single-peer-connection"
+	case testRTCServicePathv1:
+		return "v1"
+	default:
+		return fmt.Sprintf("unknown: %d", t)
+	}
+}
+
+var testRTCServicePaths = []testRTCServicePath{
+	testRTCServicePathv0,
+	testRTCServicePathv0SinglePeerConnection,
+	testRTCServicePathv1,
+}
+
+func testRTCServicePathToTestClientOptions(testRTCServicePath testRTCServicePath, opts *testclient.Options) {
+	if opts == nil {
+		return
+	}
+
+	switch testRTCServicePath {
+	case testRTCServicePathv0:
+		opts.RTCServicePath = "/rtc"
+	case testRTCServicePathv0SinglePeerConnection:
+		opts.RTCServicePath = "/rtc"
+		opts.UseJoinRequestQueryParam = true
+	case testRTCServicePathv1:
+		opts.RTCServicePath = "/rtc/v1"
+		opts.UseJoinRequestQueryParam = true
+	default:
+		opts.RTCServicePath = "/rtc"
+	}
+}
+
 // creates a client and runs against server
-func createRTCClient(name string, port int, useSinglePeerConnection bool, opts *testclient.Options) *testclient.RTCClient {
+func createRTCClient(name string, port int, testRTCServicePath testRTCServicePath, opts *testclient.Options) *testclient.RTCClient {
 	var customizer func(token *auth.AccessToken, grants *auth.VideoGrant)
 	if opts != nil {
 		customizer = opts.TokenCustomizer
 	}
 	token := joinToken(testRoom, name, customizer)
 
-	return createRTCClientWithToken(token, port, useSinglePeerConnection, opts)
+	return createRTCClientWithToken(token, port, testRTCServicePath, opts)
 }
 
 // creates a client and runs against server
-func createRTCClientWithToken(token string, port int, useSinglePeerConnection bool, opts *testclient.Options) *testclient.RTCClient {
+func createRTCClientWithToken(token string, port int, testRTCServicePath testRTCServicePath, opts *testclient.Options) *testclient.RTCClient {
 	if opts == nil {
 		opts = &testclient.Options{
 			AutoSubscribe: true,
 		}
 	}
-	if useSinglePeerConnection {
-		opts.UseJoinRequestQueryParam = true
-	}
+	testRTCServicePathToTestClientOptions(testRTCServicePath, opts)
 	ws, err := testclient.NewWebSocketConn(fmt.Sprintf("ws://localhost:%d", port), token, opts)
 	if err != nil {
 		panic(err)
 	}
 
-	c, err := testclient.NewRTCClient(ws, useSinglePeerConnection, opts)
+	c, err := testclient.NewRTCClient(ws, opts.UseJoinRequestQueryParam, opts)
 	if err != nil {
 		panic(err)
 	}
@@ -302,7 +348,7 @@ func listRoomToken() string {
 	return t
 }
 
-func stopWriters(writers ...*testclient.TrackWriter) {
+func stopWriters(writers ...testclient.TrackWriter) {
 	for _, w := range writers {
 		w.Stop()
 	}

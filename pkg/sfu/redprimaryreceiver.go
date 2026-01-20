@@ -24,9 +24,12 @@ import (
 	"github.com/pion/webrtc/v4"
 
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
+	"github.com/livekit/livekit-server/pkg/sfu/utils"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 )
+
+var _ REDTransformer = (*RedPrimaryReceiver)(nil)
 
 var (
 	ErrIncompleteRedHeader = errors.New("incomplete red block header")
@@ -35,7 +38,7 @@ var (
 
 type RedPrimaryReceiver struct {
 	TrackReceiver
-	downTrackSpreader *DownTrackSpreader
+	downTrackSpreader *utils.DownTrackSpreader[TrackSender]
 	logger            logger.Logger
 	closed            atomic.Bool
 	redPT             uint8
@@ -47,16 +50,16 @@ type RedPrimaryReceiver struct {
 	pktHistory byte
 }
 
-func NewRedPrimaryReceiver(receiver TrackReceiver, dsp DownTrackSpreaderParams) *RedPrimaryReceiver {
+func NewRedPrimaryReceiver(receiver TrackReceiver, dsp utils.DownTrackSpreaderParams) REDTransformer {
 	return &RedPrimaryReceiver{
 		TrackReceiver:     receiver,
-		downTrackSpreader: NewDownTrackSpreader(dsp),
+		downTrackSpreader: utils.NewDownTrackSpreader[TrackSender](dsp),
 		logger:            dsp.Logger,
 		redPT:             uint8(receiver.Codec().PayloadType),
 	}
 }
 
-func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int32) int {
+func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int32) int32 {
 	// extract primary payload from RED and forward to downtracks
 	if r.downTrackSpreader.DownTrackCount() == 0 {
 		return 0
@@ -64,9 +67,11 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 
 	if pkt.Packet.PayloadType != r.redPT {
 		// forward non-red packet directly
-		return r.downTrackSpreader.Broadcast(func(dt TrackSender) {
-			_ = dt.WriteRTP(pkt, spatialLayer)
+		var writeCount atomic.Int32
+		r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+			writeCount.Add(dt.WriteRTP(pkt, spatialLayer))
 		})
+		return writeCount.Load()
 	}
 
 	pkts, err := r.getSendPktsFromRed(pkt.Packet)
@@ -75,7 +80,7 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 		return 0
 	}
 
-	var count int
+	var writeCount atomic.Int32
 	for i, sendPkt := range pkts {
 		pPkt := *pkt
 		if i != len(pkts)-1 {
@@ -88,11 +93,11 @@ func (r *RedPrimaryReceiver) ForwardRTP(pkt *buffer.ExtPacket, spatialLayer int3
 
 		// not modify the ExtPacket.RawPacket here for performance since it is not used by the DownTrack,
 		// otherwise it should be set to the correct value (marshal the primary rtp packet)
-		count += r.downTrackSpreader.Broadcast(func(dt TrackSender) {
-			_ = dt.WriteRTP(&pPkt, spatialLayer)
+		r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+			writeCount.Add(dt.WriteRTP(&pPkt, spatialLayer))
 		})
 	}
-	return count
+	return writeCount.Load()
 }
 
 func (r *RedPrimaryReceiver) ForwardRTCPSenderReport(
@@ -135,6 +140,12 @@ func (r *RedPrimaryReceiver) GetDownTracks() []TrackSender {
 func (r *RedPrimaryReceiver) ResyncDownTracks() {
 	r.downTrackSpreader.Broadcast(func(dt TrackSender) {
 		dt.Resync()
+	})
+}
+
+func (r *RedPrimaryReceiver) OnStreamRestart() {
+	r.downTrackSpreader.Broadcast(func(dt TrackSender) {
+		dt.ReceiverRestart(r)
 	})
 }
 
@@ -202,7 +213,7 @@ func (r *RedPrimaryReceiver) getSendPktsFromRed(rtp *rtp.Packet) ([]*rtp.Packet,
 	var recoverBits byte
 	if needRecover {
 		bitIndex := r.lastSeq - rtp.SequenceNumber
-		for i := 0; i < maxRedCount; i++ {
+		for i := range maxRedCount {
 			if bitIndex > 7 {
 				break
 			}

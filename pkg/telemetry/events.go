@@ -20,8 +20,8 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/livekit/livekit-server/pkg/sfu/mime"
 	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
+	"github.com/livekit/protocol/codecs/mime"
 	"github.com/livekit/protocol/egress"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -80,6 +80,7 @@ func (t *telemetryService) ParticipantJoined(
 	clientInfo *livekit.ClientInfo,
 	clientMeta *livekit.AnalyticsClientMeta,
 	shouldSendEvent bool,
+	guard *ReferenceGuard,
 ) {
 	t.enqueue(func() {
 		_, found := t.getOrCreateWorker(
@@ -88,6 +89,7 @@ func (t *telemetryService) ParticipantJoined(
 			livekit.RoomName(room.Name),
 			livekit.ParticipantID(participant.Sid),
 			livekit.ParticipantIdentity(participant.Identity),
+			guard,
 		)
 		if !found {
 			prometheus.IncrementParticipantRtcConnected(1)
@@ -109,6 +111,7 @@ func (t *telemetryService) ParticipantActive(
 	participant *livekit.ParticipantInfo,
 	clientMeta *livekit.AnalyticsClientMeta,
 	isMigration bool,
+	guard *ReferenceGuard,
 ) {
 	t.enqueue(func() {
 		if !isMigration {
@@ -126,6 +129,7 @@ func (t *telemetryService) ParticipantActive(
 			livekit.RoomName(room.Name),
 			livekit.ParticipantID(participant.Sid),
 			livekit.ParticipantIdentity(participant.Identity),
+			guard,
 		)
 		if !found {
 			// need to also account for participant count
@@ -173,6 +177,7 @@ func (t *telemetryService) ParticipantResumed(
 			livekit.RoomName(room.Name),
 			livekit.ParticipantID(participant.Sid),
 			livekit.ParticipantIdentity(participant.Identity),
+			nil,
 		)
 		if !found {
 			prometheus.AddParticipant()
@@ -191,12 +196,13 @@ func (t *telemetryService) ParticipantLeft(ctx context.Context,
 	room *livekit.Room,
 	participant *livekit.ParticipantInfo,
 	shouldSendEvent bool,
+	guard *ReferenceGuard,
 ) {
 	t.enqueue(func() {
 		isConnected := false
 		if worker, ok := t.getWorker(livekit.ParticipantID(participant.Sid)); ok {
 			isConnected = worker.IsConnected()
-			if worker.Close() {
+			if worker.Close(guard) {
 				prometheus.SubParticipant()
 			}
 		}
@@ -226,7 +232,7 @@ func (t *telemetryService) TrackPublishRequested(
 	track *livekit.TrackInfo,
 ) {
 	t.enqueue(func() {
-		prometheus.AddPublishAttempt(track.Type.String())
+		prometheus.RecordTrackPublishAttempt(track.Type.String())
 		room := t.getRoomDetails(participantID)
 		ev := newTrackEvent(livekit.AnalyticsEventType_TRACK_PUBLISH_REQUESTED, room, participantID, track)
 		if ev.Participant != nil {
@@ -241,10 +247,14 @@ func (t *telemetryService) TrackPublished(
 	participantID livekit.ParticipantID,
 	identity livekit.ParticipantIdentity,
 	track *livekit.TrackInfo,
+	shouldSendEvent bool,
 ) {
 	t.enqueue(func() {
 		prometheus.AddPublishedTrack(track.Type.String())
-		prometheus.AddPublishSuccess(track.Type.String())
+		prometheus.RecordTrackPublishSuccess(track.Type.String())
+		if !shouldSendEvent {
+			return
+		}
 
 		room := t.getRoomDetails(participantID)
 		participant := &livekit.ParticipantInfo{

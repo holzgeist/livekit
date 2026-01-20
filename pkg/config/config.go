@@ -26,19 +26,21 @@ import (
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 
-	"github.com/livekit/livekit-server/pkg/metric"
-	"github.com/livekit/livekit-server/pkg/sfu"
-	"github.com/livekit/livekit-server/pkg/sfu/bwe/remotebwe"
-	"github.com/livekit/livekit-server/pkg/sfu/bwe/sendsidebwe"
-	"github.com/livekit/livekit-server/pkg/sfu/mime"
-	"github.com/livekit/livekit-server/pkg/sfu/pacer"
-	"github.com/livekit/livekit-server/pkg/sfu/streamallocator"
 	"github.com/livekit/mediatransportutil/pkg/rtcconfig"
+	"github.com/livekit/protocol/codecs/mime"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
 	redisLiveKit "github.com/livekit/protocol/redis"
 	"github.com/livekit/protocol/rpc"
 	"github.com/livekit/protocol/webhook"
+
+	"github.com/livekit/livekit-server/pkg/agent"
+	"github.com/livekit/livekit-server/pkg/metric"
+	"github.com/livekit/livekit-server/pkg/sfu"
+	"github.com/livekit/livekit-server/pkg/sfu/bwe/remotebwe"
+	"github.com/livekit/livekit-server/pkg/sfu/bwe/sendsidebwe"
+	"github.com/livekit/livekit-server/pkg/sfu/pacer"
+	"github.com/livekit/livekit-server/pkg/sfu/streamallocator"
 )
 
 const (
@@ -75,13 +77,16 @@ type Config struct {
 	LogLevel string        `yaml:"log_level,omitempty"`
 	Logging  LoggingConfig `yaml:"logging,omitempty"`
 	Limit    LimitConfig   `yaml:"limit,omitempty"`
+	Agents   agent.Config  `yaml:"agents,omitempty"`
 
 	Development bool `yaml:"development,omitempty"`
 
 	Metric metric.MetricConfig `yaml:"metric,omitempty"`
+	Trace  TracingConfig       `yaml:"trace,omitempty"`
 
 	NodeStats NodeStatsConfig `yaml:"node_stats,omitempty"`
 	AnalyticsHost string `yaml:"analytics_host,omitempty"`
+	EnableDataTracks bool `yaml:"enable_data_tracks,omitempty"`
 }
 
 type RTCConfig struct {
@@ -123,7 +128,13 @@ type RTCConfig struct {
 	// be dropped for a slow data channel to avoid blocking the room.
 	DatachannelSlowThreshold int `yaml:"datachannel_slow_threshold,omitempty"`
 
+	// Target latency for lossy data channels, used to drop packets to reduce latency.
+	DatachannelLossyTargetLatency time.Duration `yaml:"datachannel_lossy_target_latency,omitempty"`
+
 	ForwardStats ForwardStatsConfig `yaml:"forward_stats,omitempty"`
+
+	// enable rtp stream restart detection for published tracks
+	EnableRTPStreamRestartDetection bool `yaml:"enable_rtp_stream_restart_detection,omitempty"`
 }
 
 type TURNServer struct {
@@ -132,6 +143,12 @@ type TURNServer struct {
 	Protocol   string `yaml:"protocol,omitempty"`
 	Username   string `yaml:"username,omitempty"`
 	Credential string `yaml:"credential,omitempty"`
+	// Secret is used for TURN static auth secrets mechanism. When provided,
+	// dynamic credentials are generated using HMAC-SHA1 instead of static Username/Credential
+	Secret string `yaml:"secret,omitempty"`
+	// TTL is the time-to-live in seconds for generated credentials when using Secret.
+	// Defaults to 14400 seconds (4 hours) if not specified
+	TTL int `yaml:"ttl,omitempty"`
 }
 
 type CongestionControlConfig struct {
@@ -211,6 +228,7 @@ type TURNConfig struct {
 type NodeSelectorConfig struct {
 	Kind         string         `yaml:"kind,omitempty"`
 	SortBy       string         `yaml:"sort_by,omitempty"`
+	Algorithm    string         `yaml:"algorithm,omitempty"`
 	CPULoadLimit float32        `yaml:"cpu_load_limit,omitempty"`
 	SysloadLimit float32        `yaml:"sysload_limit,omitempty"`
 	Regions      []RegionConfig `yaml:"regions,omitempty"`
@@ -301,6 +319,13 @@ type ForwardStatsConfig struct {
 	SummaryInterval time.Duration `yaml:"summary_interval,omitempty"`
 	ReportInterval  time.Duration `yaml:"report_interval,omitempty"`
 	ReportWindow    time.Duration `yaml:"report_window,omitempty"`
+}
+
+type TracingConfig struct {
+	// JaegerURL configures Jaeger as a global tracer.
+	//
+	// The following formats are supported: <hostname>, <host>:<port>, http(s)://<host>/<path>
+	JaegerURL string `yaml:"jaeger_url,omitempty"`
 }
 
 func DefaultAPIConfig() APIConfig {
@@ -394,6 +419,7 @@ var DefaultConfig = Config{
 		SortBy:       "random",
 		SysloadLimit: 0.9,
 		CPULoadLimit: 0.9,
+		Algorithm:    "lowest",
 	},
 	SignalRelay: SignalRelayConfig{
 		RetryTimeout:     7500 * time.Millisecond,
@@ -745,7 +771,7 @@ func (conf *Config) updateFromCLI(c *cli.Command, baseFlags []cli.Flag) error {
 }
 
 func (conf *Config) unmarshalKeys(keys string) error {
-	temp := make(map[string]interface{})
+	temp := make(map[string]any)
 	if err := yaml.Unmarshal([]byte(keys), temp); err != nil {
 		return err
 	}

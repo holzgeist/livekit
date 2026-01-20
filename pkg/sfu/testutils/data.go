@@ -26,7 +26,7 @@ import (
 // -----------------------------------------------------------
 
 type TestExtPacketParams struct {
-	SetMarker      bool
+	Marker         bool
 	IsKeyFrame     bool
 	PayloadType    uint8
 	SequenceNumber uint16
@@ -38,6 +38,7 @@ type TestExtPacketParams struct {
 	PaddingSize    byte
 	ArrivalTime    time.Time
 	VideoLayer     buffer.VideoLayer
+	IsOutOfOrder   bool
 }
 
 // -----------------------------------------------------------
@@ -47,7 +48,7 @@ func GetTestExtPacket(params *TestExtPacketParams) (*buffer.ExtPacket, error) {
 		Header: rtp.Header{
 			Version:        2,
 			Padding:        params.PaddingSize != 0,
-			Marker:         params.SetMarker,
+			Marker:         params.Marker,
 			PayloadType:    params.PayloadType,
 			SequenceNumber: params.SequenceNumber,
 			Timestamp:      params.Timestamp,
@@ -68,8 +69,9 @@ func GetTestExtPacket(params *TestExtPacketParams) (*buffer.ExtPacket, error) {
 		ExtTimestamp:      uint64(params.TSCycles<<32) + uint64(params.Timestamp),
 		Arrival:           params.ArrivalTime.UnixNano(),
 		Packet:            &packet,
-		KeyFrame:          params.IsKeyFrame,
+		IsKeyFrame:          params.IsKeyFrame,
 		RawPacket:         raw,
+		IsOutOfOrder:      params.IsOutOfOrder,
 	}
 
 	return ep, nil
@@ -83,7 +85,7 @@ func GetTestExtPacketVP8(params *TestExtPacketParams, vp8 *buffer.VP8) (*buffer.
 		return nil, err
 	}
 
-	ep.KeyFrame = vp8.IsKeyFrame
+	ep.IsKeyFrame = vp8.IsKeyFrame
 	ep.Payload = *vp8
 	if ep.DependencyDescriptor == nil {
 		ep.Temporal = int32(vp8.TID)

@@ -88,7 +88,7 @@ func (s *SIPService) CreateSIPTrunk(ctx context.Context, req *livekit.CreateSIPT
 		Metadata:         req.Metadata,
 	}
 	if err := info.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 
 	// Validate all trunks including the new one first.
@@ -181,7 +181,7 @@ func (s *SIPService) UpdateSIPInboundTrunk(ctx context.Context, req *livekit.Upd
 		return nil, ErrSIPNotConnected
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 
 	AppendLogFields(ctx,
@@ -192,6 +192,9 @@ func (s *SIPService) UpdateSIPInboundTrunk(ctx context.Context, req *livekit.Upd
 	// Validate all trunks including the new one first.
 	info, err := s.store.LoadSIPInboundTrunk(ctx, req.SipTrunkId)
 	if err != nil {
+		if errors.Is(err, ErrSIPTrunkNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 	switch a := req.Action.(type) {
@@ -233,7 +236,7 @@ func (s *SIPService) UpdateSIPOutboundTrunk(ctx context.Context, req *livekit.Up
 		return nil, ErrSIPNotConnected
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 
 	AppendLogFields(ctx,
@@ -243,6 +246,9 @@ func (s *SIPService) UpdateSIPOutboundTrunk(ctx context.Context, req *livekit.Up
 
 	info, err := s.store.LoadSIPOutboundTrunk(ctx, req.SipTrunkId)
 	if err != nil {
+		if errors.Is(err, ErrSIPTrunkNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 	switch a := req.Action.(type) {
@@ -275,6 +281,9 @@ func (s *SIPService) GetSIPInboundTrunk(ctx context.Context, req *livekit.GetSIP
 
 	trunk, err := s.store.LoadSIPInboundTrunk(ctx, req.SipTrunkId)
 	if err != nil {
+		if errors.Is(err, ErrSIPTrunkNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 
@@ -295,6 +304,9 @@ func (s *SIPService) GetSIPOutboundTrunk(ctx context.Context, req *livekit.GetSI
 
 	trunk, err := s.store.LoadSIPOutboundTrunk(ctx, req.SipTrunkId)
 	if err != nil {
+		if errors.Is(err, ErrSIPTrunkNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 
@@ -449,7 +461,7 @@ func (s *SIPService) UpdateSIPDispatchRule(ctx context.Context, req *livekit.Upd
 		return nil, ErrSIPNotConnected
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 
 	AppendLogFields(ctx,
@@ -460,6 +472,9 @@ func (s *SIPService) UpdateSIPDispatchRule(ctx context.Context, req *livekit.Upd
 	// Validate all trunks including the new one first.
 	info, err := s.store.LoadSIPDispatchRule(ctx, req.SipDispatchRuleId)
 	if err != nil {
+		if errors.Is(err, ErrSIPDispatchRuleNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 	switch a := req.Action.(type) {
@@ -539,6 +554,9 @@ func (s *SIPService) DeleteSIPDispatchRule(ctx context.Context, req *livekit.Del
 
 	info, err := s.store.LoadSIPDispatchRule(ctx, req.SipDispatchRuleId)
 	if err != nil {
+		if errors.Is(err, ErrSIPDispatchRuleNotFound) {
+			return nil, twirp.NewError(twirp.NotFound, err.Error())
+		}
 		return nil, err
 	}
 
@@ -612,7 +630,7 @@ func (s *SIPService) CreateSIPParticipantRequest(ctx context.Context, req *livek
 		return nil, ErrSIPNotConnected
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 	callID := sip.NewCallID()
 	log := logger.GetLogger().WithUnlikelyValues(
@@ -625,10 +643,17 @@ func (s *SIPService) CreateSIPParticipantRequest(ctx context.Context, req *livek
 		log = log.WithValues("projectID", projectID)
 	}
 
-	trunk, err := s.store.LoadSIPOutboundTrunk(ctx, req.SipTrunkId)
-	if err != nil {
-		log.Errorw("cannot get trunk to update sip participant", err)
-		return nil, err
+	var trunk *livekit.SIPOutboundTrunkInfo
+	if req.SipTrunkId != "" {
+		var err error
+		trunk, err = s.store.LoadSIPOutboundTrunk(ctx, req.SipTrunkId)
+		if err != nil {
+			log.Errorw("cannot get trunk to update sip participant", err)
+			if errors.Is(err, ErrSIPTrunkNotFound) {
+				return nil, twirp.NewError(twirp.NotFound, err.Error())
+			}
+			return nil, err
+		}
 	}
 	return rpc.NewCreateSIPParticipantRequest(projectID, callID, host, wsUrl, token, req, trunk)
 }
@@ -653,9 +678,22 @@ func (s *SIPService) TransferSIPParticipant(ctx context.Context, req *livekit.Tr
 		return nil, err
 	}
 
+	// by default we set the timeout to be 30 seconds.
+	// this timeout covers:
+	//  - a network failure between this process and the LiveKit SIP bridge
+	//  - the SIP transfer target not returning 200 OK fast enough.
+	// WARN: any timeout/cancellation of a SIP transfer risks leaving
+	// either the SIP bridge, or the SIP REFER exchange, in a "unknown" state.
 	timeout := 30 * time.Second
+	if req.RingingTimeout != nil {
+		timeout = req.RingingTimeout.AsDuration()
+	}
+
+	// it's also possible the ctx has a Deadline.
+	// in that case we want to use that deadline,
+	// or our timeout, whichover is soonest.
 	if deadline, ok := ctx.Deadline(); ok {
-		timeout = time.Until(deadline)
+		timeout = min(timeout, time.Until(deadline))
 	} else {
 		var cancel func()
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -686,7 +724,7 @@ func (s *SIPService) transferSIPParticipantRequest(ctx context.Context, req *liv
 		return nil, twirpAuthError(err)
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
 
 	resp, err := s.roomService.GetParticipant(ctx, &livekit.RoomParticipantIdentity{
