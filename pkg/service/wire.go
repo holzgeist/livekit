@@ -56,7 +56,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		getNodeStatsConfig,
 		routing.CreateRouter,
 		getLimitConf,
-		config.DefaultAPIConfig,
+		getAPIConf,
 		wire.Bind(new(routing.MessageRouter), new(routing.Router)),
 		wire.Bind(new(livekit.RoomService), new(*RoomService)),
 		telemetry.NewAnalyticsService,
@@ -72,7 +72,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		getIngressStore,
 		getIngressConfig,
 		NewIngressService,
-		rpc.NewSIPClientWithParams,
+		newSIPClient,
 		getSIPStore,
 		getSIPConfig,
 		NewSIPService,
@@ -225,6 +225,19 @@ func getIngressConfig(conf *config.Config) *config.IngressConfig {
 	return &conf.Ingress
 }
 
+func newSIPClient(p rpc.ClientParams) (rpc.SIPClient, error) {
+	// Do not pass parameters directly, as they set timeout that is too short,
+	// and might set retry policy that is not acceptable for SIP methods.
+	// Instead, set relevant parameters manually.
+	return rpc.NewSIPClientWithParams(rpc.ClientParams{
+		Bus: p.Bus,
+		ClientOptions: []psrpc.ClientOption{
+			rpc.WithClientLogger(p.Logger),
+			otelpsrpc.ClientOptions(otelpsrpc.Config{}),
+		},
+	})
+}
+
 func getSIPStore(s ObjectStore) SIPStore {
 	switch store := s.(type) {
 	case *RedisStore:
@@ -277,4 +290,8 @@ func getNodeStatsConfig(config *config.Config) config.NodeStatsConfig {
 
 func getAgentConfig(config *config.Config) agent.Config {
 	return config.Agents
+}
+
+func getAPIConf(config *config.Config) config.APIConfig {
+	return config.API
 }

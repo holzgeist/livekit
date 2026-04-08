@@ -37,7 +37,7 @@ import (
 
 func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*LivekitServer, error) {
 	limitConfig := getLimitConf(conf)
-	apiConfig := config.DefaultAPIConfig()
+	apiConfig := getAPIConf(conf)
 	universalClient, err := createRedisClient(conf)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	}
 	ingressService := NewIngressService(ingressConfig, nodeID, messageBus, ingressClient, ingressStore, ioInfoService, telemetryService)
 	sipConfig := getSIPConfig(conf)
-	sipClient, err := rpc.NewSIPClientWithParams(clientParams)
+	sipClient, err := newSIPClient(clientParams)
 	if err != nil {
 		return nil, err
 	}
@@ -290,6 +290,14 @@ func getIngressConfig(conf *config.Config) *config.IngressConfig {
 	return &conf.Ingress
 }
 
+func newSIPClient(p rpc.ClientParams) (rpc.SIPClient, error) {
+
+	return rpc.NewSIPClientWithParams(rpc.ClientParams{
+		Bus:           p.Bus,
+		ClientOptions: []psrpc.ClientOption{rpc.WithClientLogger(p.Logger), otelpsrpc.ClientOptions(otelpsrpc.Config{})},
+	})
+}
+
 func getSIPStore(s ObjectStore) SIPStore {
 	switch store := s.(type) {
 	case *RedisStore:
@@ -340,4 +348,8 @@ func getNodeStatsConfig(config2 *config.Config) config.NodeStatsConfig {
 
 func getAgentConfig(config2 *config.Config) agent.Config {
 	return config2.Agents
+}
+
+func getAPIConf(config2 *config.Config) config.APIConfig {
+	return config2.API
 }

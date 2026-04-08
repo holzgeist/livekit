@@ -128,6 +128,7 @@ type BufferProvider interface {
 		oobSequenceNumber uint16,
 	) (uint64, error)
 
+	MarkForRestartStream(reason string)
 	RestartStream(reason string)
 
 	CloseWithReason(reason string) (*livekit.RTPStats, error)
@@ -272,6 +273,8 @@ func (b *BufferBase) SetLogger(lgr logger.Logger) {
 }
 
 func (b *BufferBase) Bind(rtpParameters webrtc.RTPParameters, codec webrtc.RTPCodecCapability, bitrate int) error {
+	b.logger.Debugw("binding track")
+
 	b.Lock()
 	defer b.Unlock()
 
@@ -331,9 +334,9 @@ func (b *BufferBase) BindLocked(rtpParameters webrtc.RTPParameters, codec webrtc
 		case sdp.AudioLevelURI:
 			b.audioLevelExtID = uint8(ext.ID)
 			b.audioLevel = audio.NewAudioLevel(audio.AudioLevelParams{
-				Config:    b.audioLevelConfig,
 				ClockRate: b.clockRate,
 			})
+			b.audioLevel.SetConfig(b.audioLevelConfig)
 
 		case act.AbsCaptureTimeURI:
 			b.absCaptureTimeExtID = uint8(ext.ID)
@@ -434,6 +437,9 @@ func (b *BufferBase) SetAudioLevelConfig(audioLevelConfig audio.AudioLevelConfig
 	defer b.Unlock()
 
 	b.audioLevelConfig = audioLevelConfig
+	if b.audioLevel != nil {
+		b.audioLevel.SetConfig(b.audioLevelConfig)
+	}
 }
 
 func (b *BufferBase) SetStreamRestartDetection(enable bool) {
@@ -445,6 +451,7 @@ func (b *BufferBase) SetStreamRestartDetection(enable bool) {
 
 func (b *BufferBase) setupRTPStats(clockRate uint32) {
 	b.rtpStats = rtpstats.NewRTPStatsReceiver(rtpstats.RTPStatsParams{})
+	b.rtpStats.SetLogger(b.logger)
 	b.rtpStats.SetClockRate(clockRate)
 
 	b.ppsSnapshotId = b.rtpStats.NewSnapshotId()
@@ -453,8 +460,13 @@ func (b *BufferBase) setupRTPStats(clockRate uint32) {
 		b.deltaStatsSnapshotId = b.rtpStats.NewSnapshotId()
 	}
 
+	b.setupRTPStatsLite(clockRate)
+}
+
+func (b *BufferBase) setupRTPStatsLite(clockRate uint32) {
 	if b.params.IsOOBSequenceNumber {
 		b.rtpStatsLite = rtpstats.NewRTPStatsReceiverLite(rtpstats.RTPStatsParams{})
+		b.rtpStatsLite.SetLogger(b.logger)
 		b.rtpStatsLite.SetClockRate(clockRate)
 
 		b.liteStatsSnapshotId = b.rtpStatsLite.NewSnapshotLiteId()
@@ -465,23 +477,59 @@ func (b *BufferBase) stopRTPStats(reason string) (stats *livekit.RTPStats, stats
 	if b.rtpStats != nil {
 		b.rtpStats.Stop()
 		stats = b.rtpStats.ToProto()
-	}
-	if b.rtpStatsLite != nil {
-		b.rtpStatsLite.Stop()
-		statsLite = b.rtpStatsLite.ToProto()
+
+		b.logger.Debugw(
+			"rtp stats",
+			"direction", "upstream",
+			"stats", b.rtpStats,
+			"reason", reason,
+		)
 	}
 
-	b.logger.Debugw(
-		"rtp stats",
-		"direction", "upstream",
-		"stats", b.rtpStats,
-		"statsLite", b.rtpStatsLite,
-		"reason", reason,
-	)
+	statsLite = b.stopRTPStatsLite(reason)
 	return
 }
 
+func (b *BufferBase) stopRTPStatsLite(reason string) (statsLite *livekit.RTPStats) {
+	if b.rtpStatsLite != nil {
+		b.rtpStatsLite.Stop()
+		statsLite = b.rtpStatsLite.ToProto()
+
+		b.logger.Debugw(
+			"rtp stats lite",
+			"direction", "upstream",
+			"statsLite", b.rtpStatsLite,
+			"reason", reason,
+		)
+	}
+	return
+}
+
+func (b *BufferBase) RestartOOBSequenceNumber(reason string) {
+	b.Lock()
+	defer b.Unlock()
+
+	b.stopRTPStatsLite(reason)
+	b.setupRTPStatsLite(b.clockRate)
+
+	if b.nacker != nil {
+		b.nacker = nack.NewNACKQueue(nack.NackQueueParamsDefault)
+	}
+}
+
+func (b *BufferBase) MarkForRestartStream(reason string) {
+	b.logger.Debugw("marking for stream restart", "reason", reason)
+
+	b.Lock()
+	defer b.Unlock()
+
+	b.isRestartPending = true
+	b.readCond.Broadcast()
+}
+
 func (b *BufferBase) RestartStream(reason string) {
+	b.logger.Debugw("stream restart", "reason", reason)
+
 	b.Lock()
 	defer b.Unlock()
 
@@ -510,9 +558,9 @@ func (b *BufferBase) restartStreamLocked(reason string, isDetected bool) {
 
 	if b.audioLevel != nil {
 		b.audioLevel = audio.NewAudioLevel(audio.AudioLevelParams{
-			Config:    b.audioLevelConfig,
 			ClockRate: b.clockRate,
 		})
+		b.audioLevel.SetConfig(b.audioLevelConfig)
 	}
 
 	if b.ddExtID != 0 {
@@ -526,10 +574,12 @@ func (b *BufferBase) restartStreamLocked(reason string, isDetected bool) {
 
 	b.StartKeyFrameSeeder()
 
-	b.isRestartPending = true
+	if isDetected {
+		b.isRestartPending = true
 
-	if f := b.onStreamRestart; f != nil && isDetected {
-		go f(reason)
+		if f := b.onStreamRestart; f != nil {
+			go f(reason)
+		}
 	}
 }
 
@@ -1187,12 +1237,12 @@ func (b *BufferBase) maybeGrowBucket(now int64) {
 		return
 	}
 
+	b.lastBucketCapCheckAt = now
+
 	// check and allocate in a go routine, away from the forwarding path
 	go func() {
 		b.Lock()
 		defer b.Unlock()
-
-		b.lastBucketCapCheckAt = now
 
 		cap := b.bucket.Capacity()
 		maxPkts := b.params.MaxVideoPkts
@@ -1462,7 +1512,6 @@ func (b *BufferBase) seedKeyFrame(keyFrameSeederGeneration int32) {
 	//
 	// send gratuitous PLIs for some time or until a key frame is seen to
 	// get the engine rolling
-	b.logger.Debugw("starting key frame seeder", "generation", keyFrameSeederGeneration)
 	timer := time.NewTimer(30 * time.Second)
 	defer timer.Stop()
 
@@ -1472,16 +1521,18 @@ func (b *BufferBase) seedKeyFrame(keyFrameSeederGeneration int32) {
 	initialCount := uint32(0)
 	b.RLock()
 	rtpStats := b.rtpStats
+	lgr := b.logger
 	b.RUnlock()
+	lgr.Debugw("starting key frame seeder", "generation", keyFrameSeederGeneration)
 	if rtpStats == nil {
-		b.logger.Debugw("cannot do key frame seeding without stats", "generation", keyFrameSeederGeneration)
+		lgr.Debugw("cannot do key frame seeding without stats", "generation", keyFrameSeederGeneration)
 		return
 	}
 	initialCount, _ = rtpStats.KeyFrame()
 
 	for {
 		if b.isClosed.Load() || b.keyFrameSeederGeneration.Load() != keyFrameSeederGeneration {
-			b.logger.Debugw(
+			lgr.Debugw(
 				"stopping key frame seeder: stopped",
 				"generation", keyFrameSeederGeneration,
 				"currentGeneration", b.keyFrameSeederGeneration.Load(),
@@ -1491,13 +1542,13 @@ func (b *BufferBase) seedKeyFrame(keyFrameSeederGeneration int32) {
 
 		select {
 		case <-timer.C:
-			b.logger.Debugw("stopping key frame seeder: timeout", "generation", keyFrameSeederGeneration)
+			lgr.Debugw("stopping key frame seeder: timeout", "generation", keyFrameSeederGeneration)
 			return
 
 		case <-ticker.C:
 			cnt, last := rtpStats.KeyFrame()
 			if cnt > initialCount {
-				b.logger.Debugw(
+				lgr.Debugw(
 					"stopping key frame seeder: received key frame",
 					"generation", keyFrameSeederGeneration,
 					"keyFrameCountInitial", initialCount,

@@ -48,7 +48,7 @@ type SubscribedTrackParams struct {
 	Subscriber                   types.LocalParticipant
 	MediaTrack                   types.MediaTrack
 	AdaptiveStream               bool
-	Telemetry                    telemetry.TelemetryService
+	TelemetryListener            types.ParticipantTelemetryListener
 	WrappedReceiver              *WrappedReceiver
 	IsRelayed                    bool
 	OnDownTrackCreated           func(downTrack *sfu.DownTrack)
@@ -129,18 +129,21 @@ func NewSubscribedTrack(params SubscribedTrackParams) (*SubscribedTrack, error) 
 	if isEncrypted {
 		trailer = params.Subscriber.GetTrailer()
 	}
+	stripPacketTrailer := params.MediaTrack.HasPacketTrailer() &&
+		!params.Subscriber.ProtocolVersion().SupportsPacketTrailer()
 	downTrack, err := sfu.NewDownTrack(sfu.DownTrackParams{
-		Codecs:            codecs,
-		IsEncrypted:       isEncrypted,
-		Source:            params.MediaTrack.Source(),
-		Receiver:          params.WrappedReceiver,
-		BufferFactory:     params.Subscriber.GetBufferFactory(),
-		SubID:             params.Subscriber.ID(),
-		StreamID:          streamID,
-		MaxTrack:          maxTrack,
-		PlayoutDelayLimit: params.Subscriber.GetPlayoutDelayConfig(),
-		Pacer:             params.Subscriber.GetPacer(),
-		Trailer:           trailer,
+		Codecs:             codecs,
+		IsEncrypted:        isEncrypted,
+		Source:             params.MediaTrack.Source(),
+		Receiver:           params.WrappedReceiver,
+		BufferFactory:      params.Subscriber.GetBufferFactory(),
+		SubID:              params.Subscriber.ID(),
+		StreamID:           streamID,
+		MaxTrack:           maxTrack,
+		PlayoutDelayLimit:  params.Subscriber.GetPlayoutDelayConfig(),
+		Pacer:              params.Subscriber.GetPacer(),
+		Trailer:            trailer,
+		StripPacketTrailer: stripPacketTrailer,
 		Logger: LoggerWithTrack(
 			params.Subscriber.GetLogger().WithComponent(sutils.ComponentSub),
 			params.MediaTrack.ID(),
@@ -403,7 +406,7 @@ func (t *SubscribedTrack) OnBindAndConnected() {
 }
 
 func (t *SubscribedTrack) OnStatsUpdate(stat *livekit.AnalyticsStat) {
-	t.params.Telemetry.TrackStats(t.statsKey, stat)
+	t.params.TelemetryListener.OnTrackStats(t.statsKey, stat)
 
 	if cs, ok := telemetry.CondenseStat(stat); ok {
 		ti := t.params.WrappedReceiver.TrackInfo()

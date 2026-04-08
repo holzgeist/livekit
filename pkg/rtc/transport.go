@@ -15,6 +15,7 @@
 package rtc
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -74,6 +75,7 @@ const (
 	negotiationFrequency       = 150 * time.Millisecond
 	negotiationFailedTimeout   = 15 * time.Second
 	dtlsRetransmissionInterval = 100 * time.Millisecond
+	dtlsHandshakeTimeout       = time.Minute
 
 	iceDisconnectedTimeout = 10 * time.Second                          // compatible for ice-lite with firefox client
 	iceFailedTimeout       = 5 * time.Second                           // time between disconnected and failed
@@ -387,6 +389,9 @@ func newPeerConnection(
 		se.SetLite(false)
 	}
 	se.SetDTLSRetransmissionInterval(dtlsRetransmissionInterval)
+	se.SetDTLSConnectContextMaker(func() (context.Context, func()) {
+		return context.WithTimeout(context.Background(), dtlsHandshakeTimeout)
+	})
 	se.SetICETimeouts(iceDisconnectedTimeout, iceFailedTimeout, iceKeepaliveInterval)
 
 	// if client don't support prflx over relay, we should not expose private address to it, use single external ip as host candidate
@@ -2389,7 +2394,10 @@ func (t *PCTransport) handleRemoteICECandidate(e event) error {
 
 	if err := t.pc.AddICECandidate(*c); err != nil {
 		t.params.Logger.Warnw("failed to add ICE candidate", err, "candidate", c)
-		return errors.Wrap(err, "add ice candidate failed")
+		// ignore ParseAddr error as it does not affect ICE connectivity
+		if !strings.Contains(err.Error(), "ParseAddr") {
+			return errors.Wrap(err, "add ice candidate failed")
+		}
 	} else {
 		t.params.Logger.Debugw("added ICE candidate", "candidate", c)
 	}
@@ -2601,11 +2609,13 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 
 	remoteAnswerId := t.remoteAnswerId.Load()
 	if remoteAnswerId != 0 && remoteAnswerId != t.localOfferId.Load() {
-		t.params.Logger.Warnw(
-			"sdp state: sending offer before receiving answer", nil,
-			"localOfferId", t.localOfferId.Load(),
-			"remoteAnswerId", remoteAnswerId,
-		)
+		if options == nil || !options.ICERestart {
+			t.params.Logger.Warnw(
+				"sdp state: sending offer before receiving answer", nil,
+				"localOfferId", t.localOfferId.Load(),
+				"remoteAnswerId", remoteAnswerId,
+			)
+		}
 	}
 
 	if err := t.params.Handler.OnOffer(offer, t.localOfferId.Inc(), t.getMidToTrackIDMapping()); err != nil {

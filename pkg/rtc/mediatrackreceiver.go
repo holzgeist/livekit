@@ -15,7 +15,6 @@
 package rtc
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -37,7 +36,6 @@ import (
 	"github.com/livekit/livekit-server/pkg/sfu"
 	"github.com/livekit/livekit-server/pkg/sfu/buffer"
 	"github.com/livekit/livekit-server/pkg/sfu/rtpstats"
-	"github.com/livekit/livekit-server/pkg/telemetry"
 	sutils "github.com/livekit/livekit-server/pkg/utils"
 )
 
@@ -127,7 +125,7 @@ type MediaTrackReceiverParams struct {
 	ReceiverConfig           ReceiverConfig
 	SubscriberConfig         DirectionConfig
 	AudioConfig              sfu.AudioConfig
-	Telemetry                telemetry.TelemetryService
+	TelemetryListener        types.ParticipantTelemetryListener
 	Logger                   logger.Logger
 	RegressionTargetCodec    mime.MimeType
 	PreferVideoSizeFromMedia bool
@@ -163,7 +161,6 @@ func NewMediaTrackReceiver(params MediaTrackReceiverParams, ti *livekit.TrackInf
 		IsRelayed:        params.IsRelayed,
 		ReceiverConfig:   params.ReceiverConfig,
 		SubscriberConfig: params.SubscriberConfig,
-		Telemetry:        params.Telemetry,
 		Logger:           params.Logger,
 	})
 	t.MediaTrackSubscriptions.OnDownTrackCreated(t.onDownTrackCreated)
@@ -521,6 +518,10 @@ func (t *MediaTrackReceiver) IsEncrypted() bool {
 	return t.TrackInfo().Encryption != livekit.Encryption_NONE
 }
 
+func (t *MediaTrackReceiver) HasPacketTrailer() bool {
+	return len(t.TrackInfo().GetPacketTrailerFeatures()) > 0
+}
+
 func (t *MediaTrackReceiver) AddOnClose(f func(isExpectedToResume bool)) {
 	if f == nil {
 		return
@@ -686,7 +687,7 @@ func (t *MediaTrackReceiver) SetLayerSsrcsForRid(mimeType mime.MimeType, rid str
 				matchingLayer.RepairSsrc = repairSSRC
 			}
 		}
-		if ssrcFound {
+		if ssrcFound && (matchingLayer.Ssrc != ssrc || matchingLayer.RepairSsrc != repairSSRC) {
 			t.params.Logger.Warnw(
 				"not overriding ssrc", nil,
 				"rid", rid,
@@ -694,7 +695,7 @@ func (t *MediaTrackReceiver) SetLayerSsrcsForRid(mimeType mime.MimeType, rid str
 				"existingSSRC", matchingLayer.Ssrc,
 				"repairSSRC", repairSSRC,
 				"existingRepairSSRC", matchingLayer.RepairSsrc,
-				"trackInfo", trackInfo,
+				"trackInfo", logger.Proto(trackInfo),
 			)
 		}
 
@@ -937,7 +938,7 @@ func (t *MediaTrackReceiver) UpdateAudioTrack(update *livekit.UpdateLocalAudioTr
 
 	t.updateTrackInfoOfReceivers()
 
-	t.params.Telemetry.TrackPublishedUpdate(context.Background(), t.PublisherID(), clonedInfo)
+	t.params.TelemetryListener.OnTrackPublishedUpdate(t.PublisherID(), clonedInfo)
 	t.params.Logger.Debugw("updated audio track", "before", logger.Proto(trackInfo), "after", logger.Proto(clonedInfo))
 }
 
@@ -961,7 +962,7 @@ func (t *MediaTrackReceiver) UpdateVideoTrack(update *livekit.UpdateLocalVideoTr
 
 	t.updateTrackInfoOfReceivers()
 
-	t.params.Telemetry.TrackPublishedUpdate(context.Background(), t.PublisherID(), clonedInfo)
+	t.params.TelemetryListener.OnTrackPublishedUpdate(t.PublisherID(), clonedInfo)
 	t.params.Logger.Debugw("updated video track", "before", logger.Proto(trackInfo), "after", logger.Proto(clonedInfo))
 }
 
@@ -1007,7 +1008,7 @@ func (t *MediaTrackReceiver) UpdateVideoSize(mimeType mime.MimeType, sizes []buf
 
 	t.updateTrackInfoOfReceivers()
 
-	t.params.Telemetry.TrackPublishedUpdate(context.Background(), t.PublisherID(), clonedInfo)
+	t.params.TelemetryListener.OnTrackPublishedUpdate(t.PublisherID(), clonedInfo)
 	t.params.Logger.Debugw("updated video sizes", "before", logger.Proto(trackInfo), "after", logger.Proto(clonedInfo))
 }
 
@@ -1038,7 +1039,7 @@ func (t *MediaTrackReceiver) NotifyMaxLayerChange(mimeType mime.MimeType, maxLay
 		}
 	}
 
-	t.params.Telemetry.TrackPublishedUpdate(context.Background(), t.PublisherID(), ti)
+	t.params.TelemetryListener.OnTrackPublishedUpdate(t.PublisherID(), ti)
 }
 
 // GetQualityForDimension finds the closest quality to use for desired dimensions

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,6 +88,8 @@ type Config struct {
 	NodeStats NodeStatsConfig `yaml:"node_stats,omitempty"`
 	AnalyticsHost string `yaml:"analytics_host,omitempty"`
 	EnableDataTracks bool `yaml:"enable_data_tracks,omitempty"`
+
+	API APIConfig `yaml:"api,omitempty"`
 }
 
 type RTCConfig struct {
@@ -214,15 +217,16 @@ type LoggingConfig struct {
 }
 
 type TURNConfig struct {
-	Enabled             bool   `yaml:"enabled,omitempty"`
-	Domain              string `yaml:"domain,omitempty"`
-	CertFile            string `yaml:"cert_file,omitempty"`
-	KeyFile             string `yaml:"key_file,omitempty"`
-	TLSPort             int    `yaml:"tls_port,omitempty"`
-	UDPPort             int    `yaml:"udp_port,omitempty"`
-	RelayPortRangeStart uint16 `yaml:"relay_range_start,omitempty"`
-	RelayPortRangeEnd   uint16 `yaml:"relay_range_end,omitempty"`
-	ExternalTLS         bool   `yaml:"external_tls,omitempty"`
+	Enabled             bool     `yaml:"enabled,omitempty"`
+	Domain              string   `yaml:"domain,omitempty"`
+	CertFile            string   `yaml:"cert_file,omitempty"`
+	KeyFile             string   `yaml:"key_file,omitempty"`
+	TLSPort             int      `yaml:"tls_port,omitempty"`
+	UDPPort             int      `yaml:"udp_port,omitempty"`
+	RelayPortRangeStart uint16   `yaml:"relay_range_start,omitempty"`
+	RelayPortRangeEnd   uint16   `yaml:"relay_range_end,omitempty"`
+	ExternalTLS         bool     `yaml:"external_tls,omitempty"`
+	BindAddresses       []string `yaml:"bind_addresses,omitempty"`
 }
 
 type NodeSelectorConfig struct {
@@ -307,6 +311,9 @@ type APIConfig struct {
 
 	// max amount of time to wait before checking for operation complete
 	MaxCheckInterval time.Duration `yaml:"max_check_interval,omitempty"`
+
+	// Backwards compatibility for room service api calls, will enable by default and remove in a future release
+	EnablePsrpcForGetListParticpants bool `yaml:"enable_psrpc_for_get_list_participants,omitempty"`
 }
 
 type PrometheusConfig struct {
@@ -412,7 +419,8 @@ var DefaultConfig = Config{
 		PionLevel: "error",
 	},
 	TURN: TURNConfig{
-		Enabled: false,
+		Enabled:       false,
+		BindAddresses: []string{"0.0.0.0"},
 	},
 	NodeSelector: NodeSelectorConfig{
 		Kind:         "any",
@@ -433,6 +441,7 @@ var DefaultConfig = Config{
 	Metric:    metric.DefaultMetricConfig,
 	WebHook:   webhook.DefaultWebHookConfig,
 	NodeStats: DefaultNodeStatsConfig,
+	API:       DefaultAPIConfig(),
 }
 
 func NewConfig(confString string, strictMode bool, c *cli.Command, baseFlags []cli.Flag) (*Config, error) {
@@ -618,9 +627,9 @@ func (conf *Config) ValidateKeys() error {
 }
 
 func GenerateCLIFlags(existingFlags []cli.Flag, hidden bool) ([]cli.Flag, error) {
-	blankConfig := &Config{}
+	defaultConfig := &DefaultConfig
 	flags := make([]cli.Flag, 0)
-	for name, value := range blankConfig.ToCLIFlagNames(existingFlags) {
+	for name, value := range (defaultConfig).ToCLIFlagNames(existingFlags) {
 		kind := value.Kind()
 		if kind == reflect.Ptr {
 			kind = value.Type().Elem().Kind()
@@ -628,63 +637,72 @@ func GenerateCLIFlags(existingFlags []cli.Flag, hidden bool) ([]cli.Flag, error)
 
 		var flag cli.Flag
 		envVar := fmt.Sprintf("LIVEKIT_%s", strings.ToUpper(strings.Replace(name, ".", "_", -1)))
+		defaultText := cliDefaultText(value)
 
 		switch kind {
 		case reflect.Bool:
 			flag = &cli.BoolFlag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.String:
 			flag = &cli.StringFlag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Int, reflect.Int32:
 			flag = &cli.IntFlag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Int64:
 			flag = &cli.Int64Flag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Uint8, reflect.Uint16, reflect.Uint32:
 			flag = &cli.UintFlag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Uint64:
 			flag = &cli.Uint64Flag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Float32:
 			flag = &cli.Float64Flag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Float64:
 			flag = &cli.Float64Flag{
-				Name:    name,
-				Sources: cli.EnvVars(envVar),
-				Usage:   generatedCLIFlagUsage,
-				Hidden:  hidden,
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
 			}
 		case reflect.Slice:
 			// TODO
@@ -703,6 +721,33 @@ func GenerateCLIFlags(existingFlags []cli.Flag, hidden bool) ([]cli.Flag, error)
 	}
 
 	return flags, nil
+}
+
+func cliDefaultText(value reflect.Value) string {
+	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return ""
+		}
+		value = value.Elem()
+	}
+
+	switch value.Kind() {
+	case reflect.Bool:
+		return strconv.FormatBool(value.Bool())
+	case reflect.String:
+		return value.String()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if value.Type() == reflect.TypeOf(time.Duration(0)) {
+			return value.Interface().(time.Duration).String()
+		}
+		return strconv.FormatInt(value.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return strconv.FormatUint(value.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		return strconv.FormatFloat(value.Float(), 'f', -1, 64)
+	default:
+		return ""
+	}
 }
 
 func (conf *Config) updateFromCLI(c *cli.Command, baseFlags []cli.Flag) error {
@@ -759,7 +804,7 @@ func (conf *Config) updateFromCLI(c *cli.Command, baseFlags []cli.Flag) error {
 		conf.TURN.KeyFile = c.String("turn-key")
 	}
 	if c.IsSet("node-ip") {
-		conf.RTC.NodeIP = c.String("node-ip")
+		conf.RTC.NodeIP.UnmarshalString(c.String("node-ip"))
 	}
 	if c.IsSet("udp-port") {
 		conf.RTC.UDPPort.UnmarshalString(c.String("udp-port"))

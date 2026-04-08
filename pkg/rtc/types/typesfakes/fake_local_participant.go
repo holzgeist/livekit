@@ -541,6 +541,16 @@ type FakeLocalParticipant struct {
 	getSubscribedTracksReturnsOnCall map[int]struct {
 		result1 []types.SubscribedTrack
 	}
+	GetTelemetryListenerStub        func() types.ParticipantTelemetryListener
+	getTelemetryListenerMutex       sync.RWMutex
+	getTelemetryListenerArgsForCall []struct {
+	}
+	getTelemetryListenerReturns struct {
+		result1 types.ParticipantTelemetryListener
+	}
+	getTelemetryListenerReturnsOnCall map[int]struct {
+		result1 types.ParticipantTelemetryListener
+	}
 	GetTrailerStub        func() []byte
 	getTrailerMutex       sync.RWMutex
 	getTrailerArgsForCall []struct {
@@ -1273,9 +1283,10 @@ type FakeLocalParticipant struct {
 	supportsSyncStreamIDReturnsOnCall map[int]struct {
 		result1 bool
 	}
-	SupportsTransceiverReuseStub        func() bool
+	SupportsTransceiverReuseStub        func(types.MediaTrack) bool
 	supportsTransceiverReuseMutex       sync.RWMutex
 	supportsTransceiverReuseArgsForCall []struct {
+		arg1 types.MediaTrack
 	}
 	supportsTransceiverReuseReturns struct {
 		result1 bool
@@ -4193,6 +4204,59 @@ func (fake *FakeLocalParticipant) GetSubscribedTracksReturnsOnCall(i int, result
 	}
 	fake.getSubscribedTracksReturnsOnCall[i] = struct {
 		result1 []types.SubscribedTrack
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetTelemetryListener() types.ParticipantTelemetryListener {
+	fake.getTelemetryListenerMutex.Lock()
+	ret, specificReturn := fake.getTelemetryListenerReturnsOnCall[len(fake.getTelemetryListenerArgsForCall)]
+	fake.getTelemetryListenerArgsForCall = append(fake.getTelemetryListenerArgsForCall, struct {
+	}{})
+	stub := fake.GetTelemetryListenerStub
+	fakeReturns := fake.getTelemetryListenerReturns
+	fake.recordInvocation("GetTelemetryListener", []interface{}{})
+	fake.getTelemetryListenerMutex.Unlock()
+	if stub != nil {
+		return stub()
+	}
+	if specificReturn {
+		return ret.result1
+	}
+	return fakeReturns.result1
+}
+
+func (fake *FakeLocalParticipant) GetTelemetryListenerCallCount() int {
+	fake.getTelemetryListenerMutex.RLock()
+	defer fake.getTelemetryListenerMutex.RUnlock()
+	return len(fake.getTelemetryListenerArgsForCall)
+}
+
+func (fake *FakeLocalParticipant) GetTelemetryListenerCalls(stub func() types.ParticipantTelemetryListener) {
+	fake.getTelemetryListenerMutex.Lock()
+	defer fake.getTelemetryListenerMutex.Unlock()
+	fake.GetTelemetryListenerStub = stub
+}
+
+func (fake *FakeLocalParticipant) GetTelemetryListenerReturns(result1 types.ParticipantTelemetryListener) {
+	fake.getTelemetryListenerMutex.Lock()
+	defer fake.getTelemetryListenerMutex.Unlock()
+	fake.GetTelemetryListenerStub = nil
+	fake.getTelemetryListenerReturns = struct {
+		result1 types.ParticipantTelemetryListener
+	}{result1}
+}
+
+func (fake *FakeLocalParticipant) GetTelemetryListenerReturnsOnCall(i int, result1 types.ParticipantTelemetryListener) {
+	fake.getTelemetryListenerMutex.Lock()
+	defer fake.getTelemetryListenerMutex.Unlock()
+	fake.GetTelemetryListenerStub = nil
+	if fake.getTelemetryListenerReturnsOnCall == nil {
+		fake.getTelemetryListenerReturnsOnCall = make(map[int]struct {
+			result1 types.ParticipantTelemetryListener
+		})
+	}
+	fake.getTelemetryListenerReturnsOnCall[i] = struct {
+		result1 types.ParticipantTelemetryListener
 	}{result1}
 }
 
@@ -8233,17 +8297,18 @@ func (fake *FakeLocalParticipant) SupportsSyncStreamIDReturnsOnCall(i int, resul
 	}{result1}
 }
 
-func (fake *FakeLocalParticipant) SupportsTransceiverReuse() bool {
+func (fake *FakeLocalParticipant) SupportsTransceiverReuse(arg1 types.MediaTrack) bool {
 	fake.supportsTransceiverReuseMutex.Lock()
 	ret, specificReturn := fake.supportsTransceiverReuseReturnsOnCall[len(fake.supportsTransceiverReuseArgsForCall)]
 	fake.supportsTransceiverReuseArgsForCall = append(fake.supportsTransceiverReuseArgsForCall, struct {
-	}{})
+		arg1 types.MediaTrack
+	}{arg1})
 	stub := fake.SupportsTransceiverReuseStub
 	fakeReturns := fake.supportsTransceiverReuseReturns
-	fake.recordInvocation("SupportsTransceiverReuse", []interface{}{})
+	fake.recordInvocation("SupportsTransceiverReuse", []interface{}{arg1})
 	fake.supportsTransceiverReuseMutex.Unlock()
 	if stub != nil {
-		return stub()
+		return stub(arg1)
 	}
 	if specificReturn {
 		return ret.result1
@@ -8257,10 +8322,17 @@ func (fake *FakeLocalParticipant) SupportsTransceiverReuseCallCount() int {
 	return len(fake.supportsTransceiverReuseArgsForCall)
 }
 
-func (fake *FakeLocalParticipant) SupportsTransceiverReuseCalls(stub func() bool) {
+func (fake *FakeLocalParticipant) SupportsTransceiverReuseCalls(stub func(types.MediaTrack) bool) {
 	fake.supportsTransceiverReuseMutex.Lock()
 	defer fake.supportsTransceiverReuseMutex.Unlock()
 	fake.SupportsTransceiverReuseStub = stub
+}
+
+func (fake *FakeLocalParticipant) SupportsTransceiverReuseArgsForCall(i int) types.MediaTrack {
+	fake.supportsTransceiverReuseMutex.RLock()
+	defer fake.supportsTransceiverReuseMutex.RUnlock()
+	argsForCall := fake.supportsTransceiverReuseArgsForCall[i]
+	return argsForCall.arg1
 }
 
 func (fake *FakeLocalParticipant) SupportsTransceiverReuseReturns(result1 bool) {
