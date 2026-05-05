@@ -436,12 +436,16 @@ var DefaultConfig = Config{
 		StreamBufferSize: 1000,
 		ConnectAttempts:  3,
 	},
-	PSRPC:     rpc.DefaultPSRPCConfig,
-	Keys:      map[string]string{},
-	Metric:    metric.DefaultMetricConfig,
-	WebHook:   webhook.DefaultWebHookConfig,
-	NodeStats: DefaultNodeStatsConfig,
-	API:       DefaultAPIConfig(),
+	Agents: agent.Config{
+		TargetLoad: agent.DefaultTargetLoad,
+	},
+	PSRPC:            rpc.DefaultPSRPCConfig,
+	Keys:             map[string]string{},
+	Metric:           metric.DefaultMetricConfig,
+	WebHook:          webhook.DefaultWebHookConfig,
+	NodeStats:        DefaultNodeStatsConfig,
+	API:              DefaultAPIConfig(),
+	EnableDataTracks: true,
 }
 
 func NewConfig(confString string, strictMode bool, c *cli.Command, baseFlags []cli.Flag) (*Config, error) {
@@ -636,7 +640,7 @@ func GenerateCLIFlags(existingFlags []cli.Flag, hidden bool) ([]cli.Flag, error)
 		}
 
 		var flag cli.Flag
-		envVar := fmt.Sprintf("LIVEKIT_%s", strings.ToUpper(strings.Replace(name, ".", "_", -1)))
+		envVar := fmt.Sprintf("LIVEKIT_%s", strings.ToUpper(strings.ReplaceAll(name, ".", "_")))
 		defaultText := cliDefaultText(value)
 
 		switch kind {

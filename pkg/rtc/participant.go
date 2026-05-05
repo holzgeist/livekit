@@ -17,6 +17,7 @@ package rtc
 import (
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"os"
 	"slices"
@@ -33,7 +34,6 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/livekit/mediatransportutil/pkg/twcc"
@@ -1427,6 +1427,7 @@ func (p *ParticipantImpl) Close(sendLeave bool, reason types.ParticipantCloseRea
 	p.pendingTracksLock.Unlock()
 
 	p.UpTrackManager.Close(isExpectedToResume)
+	p.UpDataTrackManager.Close()
 
 	p.rpcLock.Lock()
 	clear(p.rpcPendingAcks)
@@ -1442,7 +1443,7 @@ func (p *ParticipantImpl) Close(sendLeave bool, reason types.ParticipantCloseRea
 	// ensure this is synchronized
 	p.CloseSignalConnection(types.SignallingCloseReasonParticipantClose)
 	p.lock.RLock()
-	onClose := maps.Values(p.onClose)
+	onClose := slices.Collect(maps.Values(p.onClose))
 	p.lock.RUnlock()
 	for _, cb := range onClose {
 		cb(p)
@@ -1513,7 +1514,7 @@ func (p *ParticipantImpl) setupMigrationTimerLocked() {
 		if p.IsClosed() || p.IsDisconnected() {
 			return
 		}
-		p.subLogger.Debugw("closing peer connection(s) to aid migration")
+		p.subLogger.Debugw("closing subscriber peer connection to aid migration")
 
 		//
 		// Close all down tracks before closing subscriber peer connection.
@@ -1523,7 +1524,7 @@ func (p *ParticipantImpl) setupMigrationTimerLocked() {
 		//
 		p.SubscriptionManager.Close(true)
 
-		p.TransportManager.Close()
+		p.TransportManager.SubscriberClose()
 	})
 }
 
@@ -1620,7 +1621,7 @@ func (p *ParticipantImpl) SetMigrateState(s types.MigrateState) {
 			// callback could close the remote participant/tracks before the local track
 			// is fully active.
 			//
-			// that could lead subscribers to unsubscribe due to source
+			// that could lead to subscribers unsubscribing due to source
 			// track going away, i. e. in this case, the remote track close would have
 			// notified the subscription manager, the subscription manager would
 			// re-resolve to check if the track is still active and unsubscribe if none
