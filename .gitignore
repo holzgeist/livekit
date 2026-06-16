@@ -27,3 +27,5 @@ proto/
 .idea/
 
 dist/
+
+logs/

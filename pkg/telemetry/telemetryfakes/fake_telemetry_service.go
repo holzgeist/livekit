@@ -122,6 +122,13 @@ type FakeTelemetryService struct {
 		arg4 livekit.NodeID
 		arg5 livekit.ReconnectReason
 	}
+	ParticipantUpdatedStub        func(context.Context, *livekit.Room, *livekit.ParticipantInfo)
+	participantUpdatedMutex       sync.RWMutex
+	participantUpdatedArgsForCall []struct {
+		arg1 context.Context
+		arg2 *livekit.Room
+		arg3 *livekit.ParticipantInfo
+	}
 	ReportStub        func(context.Context, *livekit.ReportInfo)
 	reportMutex       sync.RWMutex
 	reportArgsForCall []struct {
@@ -854,6 +861,40 @@ func (fake *FakeTelemetryService) ParticipantResumedArgsForCall(i int) (context.
 	defer fake.participantResumedMutex.RUnlock()
 	argsForCall := fake.participantResumedArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3, argsForCall.arg4, argsForCall.arg5
+}
+
+func (fake *FakeTelemetryService) ParticipantUpdated(arg1 context.Context, arg2 *livekit.Room, arg3 *livekit.ParticipantInfo) {
+	fake.participantUpdatedMutex.Lock()
+	fake.participantUpdatedArgsForCall = append(fake.participantUpdatedArgsForCall, struct {
+		arg1 context.Context
+		arg2 *livekit.Room
+		arg3 *livekit.ParticipantInfo
+	}{arg1, arg2, arg3})
+	stub := fake.ParticipantUpdatedStub
+	fake.recordInvocation("ParticipantUpdated", []interface{}{arg1, arg2, arg3})
+	fake.participantUpdatedMutex.Unlock()
+	if stub != nil {
+		fake.ParticipantUpdatedStub(arg1, arg2, arg3)
+	}
+}
+
+func (fake *FakeTelemetryService) ParticipantUpdatedCallCount() int {
+	fake.participantUpdatedMutex.RLock()
+	defer fake.participantUpdatedMutex.RUnlock()
+	return len(fake.participantUpdatedArgsForCall)
+}
+
+func (fake *FakeTelemetryService) ParticipantUpdatedCalls(stub func(context.Context, *livekit.Room, *livekit.ParticipantInfo)) {
+	fake.participantUpdatedMutex.Lock()
+	defer fake.participantUpdatedMutex.Unlock()
+	fake.ParticipantUpdatedStub = stub
+}
+
+func (fake *FakeTelemetryService) ParticipantUpdatedArgsForCall(i int) (context.Context, *livekit.Room, *livekit.ParticipantInfo) {
+	fake.participantUpdatedMutex.RLock()
+	defer fake.participantUpdatedMutex.RUnlock()
+	argsForCall := fake.participantUpdatedArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2, argsForCall.arg3
 }
 
 func (fake *FakeTelemetryService) Report(arg1 context.Context, arg2 *livekit.ReportInfo) {
