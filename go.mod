@@ -155,7 +155,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace github.com/livekit/protocol v1.46.7-0.20260605212020-c0615a2f6f84 => github.com/holzgeist/livekit-protocol v0.0.0-20260616130756-5202a8926d48
+replace github.com/livekit/protocol v1.46.7-0.20260605212020-c0615a2f6f84 => github.com/holzgeist/livekit-protocol v0.0.0-20260616110756-5202a8926d48
 
 // for gst whipsink compatibility
 // it is unclear what in pion/dtls v3.1.3 breaks compatibility,
