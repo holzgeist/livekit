@@ -33,10 +33,12 @@ type DataDownTrackParams struct {
 	PublishDataTrack types.DataTrack
 	Handle           uint16
 	Transport        types.DataTrackTransport
+	BytesTrackStats  *BytesTrackStats
 }
 
 type DataDownTrack struct {
 	params    DataDownTrackParams
+	logger    logger.Logger
 	createdAt int64
 }
 
@@ -45,18 +47,22 @@ func NewDataDownTrack(params DataDownTrackParams) (*DataDownTrack, error) {
 		params:    params,
 		createdAt: time.Now().UnixNano(),
 	}
+	d.logger = params.Logger.WithValues("name", d.Name(), "handle", d.Handle())
 
 	if err := d.params.PublishDataTrack.AddDataDownTrack(d); err != nil {
-		d.params.Logger.Warnw("could not add data down track", err)
+		d.logger.Warnw("could not add data down track", err)
 		return nil, err
 	}
 
-	d.params.Logger.Infow("created data down track", "name", d.Name())
+	d.logger.Infow("created data down track")
 	return d, nil
 }
 
 func (d *DataDownTrack) Close() {
-	d.params.Logger.Infow("closing data down track", "name", d.Name())
+	d.logger.Infow("closing data down track")
+	if d.params.BytesTrackStats != nil {
+		d.params.BytesTrackStats.Stop()
+	}
 	d.params.PublishDataTrack.DeleteDataDownTrack(d.SubscriberID())
 }
 
@@ -86,11 +92,15 @@ func (d *DataDownTrack) WritePacket(data []byte, packet *datatrack.Packet, _arri
 	forwardedPacket.Handle = d.params.Handle
 	buf, err := forwardedPacket.Marshal()
 	if err != nil {
-		d.params.Logger.Warnw("could not marshal data track message", err)
+		d.logger.Warnw("could not marshal data track message", err)
 		return
 	}
 	if err := d.params.Transport.SendDataTrackMessage(buf); err != nil {
-		d.params.Logger.Warnw("could not send data track message", err, "handle", d.params.Handle)
+		d.logger.Warnw("could not send data track message", err)
+		return
+	}
+	if d.params.BytesTrackStats != nil {
+		d.params.BytesTrackStats.AddBytes(uint64(len(buf)), true)
 	}
 }
 

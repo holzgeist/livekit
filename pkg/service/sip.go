@@ -421,6 +421,7 @@ func (s *SIPService) CreateSIPDispatchRule(ctx context.Context, req *livekit.Cre
 	if s.store == nil {
 		return nil, ErrSIPNotConnected
 	}
+	req.DispatchRule.Upgrade()
 	if err := req.Validate(); err != nil {
 		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
@@ -583,7 +584,7 @@ func (s *SIPService) CreateSIPParticipant(ctx context.Context, req *livekit.Crea
 	ireq, err := s.CreateSIPParticipantRequest(ctx, req, "", "", "", "")
 	if err != nil {
 		unlikelyLogger.Errorw("cannot create sip participant request", err)
-		return nil, err
+		return nil, wrapSIPContextError(err)
 	}
 	unlikelyLogger = unlikelyLogger.WithValues(
 		"callID", ireq.SipCallId,
@@ -612,7 +613,7 @@ func (s *SIPService) CreateSIPParticipant(ctx context.Context, req *livekit.Crea
 	resp, err := s.psrpcClient.CreateSIPParticipant(ctx, "", ireq, psrpc.WithRequestTimeout(timeout))
 	if err != nil {
 		unlikelyLogger.Errorw("cannot create sip participant", err)
-		return nil, err
+		return nil, wrapSIPContextError(err)
 	}
 	return &livekit.SIPParticipantInfo{
 		ParticipantId:       resp.ParticipantId,
@@ -629,6 +630,7 @@ func (s *SIPService) CreateSIPParticipantRequest(ctx context.Context, req *livek
 	if s.store == nil {
 		return nil, ErrSIPNotConnected
 	}
+	req.Upgrade()
 	if err := req.Validate(); err != nil {
 		return nil, twirp.WrapError(twirp.NewError(twirp.InvalidArgument, err.Error()), err)
 	}
@@ -680,7 +682,7 @@ func (s *SIPService) TransferSIPParticipant(ctx context.Context, req *livekit.Tr
 	ireq, err := s.transferSIPParticipantRequest(ctx, req)
 	if err != nil {
 		log.Errorw("cannot create transfer sip participant request", err)
-		return nil, err
+		return nil, wrapSIPContextError(err)
 	}
 
 	// by default we set the timeout to be 30 seconds.
@@ -707,7 +709,7 @@ func (s *SIPService) TransferSIPParticipant(ctx context.Context, req *livekit.Tr
 	_, err = s.psrpcClient.TransferSIPParticipant(ctx, ireq.SipCallId, ireq, psrpc.WithRequestTimeout(timeout))
 	if err != nil {
 		log.Errorw("cannot transfer sip participant", err)
-		return nil, err
+		return nil, wrapSIPContextError(err)
 	}
 
 	return &emptypb.Empty{}, nil
@@ -753,4 +755,25 @@ func (s *SIPService) transferSIPParticipantRequest(ctx context.Context, req *liv
 		Headers:        req.Headers,
 		RingingTimeout: req.RingingTimeout,
 	}, nil
+}
+
+// wrapSIPContextError converts raw context.DeadlineExceeded / context.Canceled
+// into psrpc-coded errors so they aren't surfaced as @code:unknown / HTTP 500
+// at the Twirp boundary. psrpc errors and any error that already carries a
+// gRPC status are passed through unchanged.
+func wrapSIPContextError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var psErr psrpc.Error
+	if errors.As(err, &psErr) {
+		return err
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return psrpc.NewError(psrpc.DeadlineExceeded, err)
+	case errors.Is(err, context.Canceled):
+		return psrpc.NewError(psrpc.Canceled, err)
+	}
+	return err
 }

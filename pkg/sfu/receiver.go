@@ -162,6 +162,9 @@ func (w *WebRTCReceiver) GetConnectionScoreAndQuality() (float32, livekit.Connec
 }
 
 func (w *WebRTCReceiver) ssrc(layer int) uint32 {
+	w.upTracksMu.Lock()
+	defer w.upTracksMu.Unlock()
+
 	if track := w.upTracks[layer]; track != nil {
 		return uint32(track.SSRC())
 	}
@@ -198,6 +201,20 @@ func (w *WebRTCReceiver) AddUpTrack(track TrackRemote, buff *buffer.Buffer) erro
 	buff.OnRtcpFeedback(w.sendRTCP)
 	w.ReceiverBase.StartBuffer(buff, layer)
 	return nil
+}
+
+func (w *WebRTCReceiver) NumUpTracks() int {
+	numUpTracks := 0
+
+	w.upTracksMu.Lock()
+	for _, track := range w.upTracks {
+		if track != nil {
+			numUpTracks++
+		}
+	}
+	w.upTracksMu.Unlock()
+
+	return numUpTracks
 }
 
 func (w *WebRTCReceiver) UpdateTrackInfo(ti *livekit.TrackInfo) {

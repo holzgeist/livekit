@@ -22,7 +22,7 @@ import (
 	"github.com/livekit/protocol/webhook"
 	"github.com/livekit/psrpc"
 	"github.com/livekit/psrpc/pkg/middleware/otelpsrpc"
-	"github.com/pion/turn/v4"
+	"github.com/pion/turn/v5"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
@@ -83,7 +83,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 		return nil, err
 	}
 	analyticsService := telemetry.NewAnalyticsService(conf, currentNode)
-	telemetryService := telemetry.NewTelemetryService(queuedNotifier, analyticsService)
+	telemetryService := createTelemetryService(queuedNotifier, analyticsService)
 	ioInfoService, err := NewIOInfoService(messageBus, egressStore, ingressStore, sipStore, telemetryService)
 	if err != nil {
 		return nil, err
@@ -234,6 +234,14 @@ func createWebhookNotifier(conf *config.Config, provider auth.KeyProvider) (webh
 	}
 
 	return webhook.NewDefaultNotifier(wc, provider)
+}
+
+func createTelemetryService(notifier webhook.QueuedNotifier, analytics telemetry.AnalyticsService) telemetry.TelemetryService {
+	svc := telemetry.NewTelemetryService(notifier, analytics)
+	if notifier != nil {
+		notifier.RegisterProcessedHook(svc.Webhook)
+	}
+	return svc
 }
 
 func createRedisClient(conf *config.Config) (redis.UniversalClient, error) {

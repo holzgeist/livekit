@@ -129,8 +129,10 @@ func NewSubscribedTrack(params SubscribedTrackParams) (*SubscribedTrack, error) 
 	if isEncrypted {
 		trailer = params.Subscriber.GetTrailer()
 	}
-	stripPacketTrailer := params.MediaTrack.HasPacketTrailer() &&
-		!params.Subscriber.ProtocolVersion().SupportsPacketTrailer()
+	subClientInfo := ClientInfo{ClientInfo: params.Subscriber.GetClientInfo()}
+	subSupportsPacketTrailer := subClientInfo.SupportsPacketTrailer()
+	// Strip packet trailer if track has packet trailer but subscriber does not have cap
+	stripPacketTrailer := params.MediaTrack.HasPacketTrailer() && !subSupportsPacketTrailer
 	downTrack, err := sfu.NewDownTrack(sfu.DownTrackParams{
 		Codecs:             codecs,
 		IsEncrypted:        isEncrypted,
@@ -411,6 +413,8 @@ func (t *SubscribedTrack) OnStatsUpdate(stat *livekit.AnalyticsStat) {
 	if cs, ok := telemetry.CondenseStat(stat); ok {
 		ti := t.params.WrappedReceiver.TrackInfo()
 		t.reporter.Tx(func(tx roomobs.TrackTx) {
+			tx.ParticipantSession().ReportKindCode(roomobs.ParticipantKindCode(t.params.Subscriber.Kind()))
+			tx.ParticipantSession().ReportKindDetailsCodes(roomobs.ParticipantKindDetailsCodes(t.params.Subscriber.KindDetails()))
 			tx.ReportName(ti.Name)
 			tx.ReportKind(roomobs.TrackKindSub)
 			tx.ReportType(roomobs.TrackTypeFromProto(ti.Type))

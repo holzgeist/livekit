@@ -21,8 +21,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,8 +32,10 @@ import (
 
 	"github.com/livekit/mediatransportutil/pkg/rtcconfig"
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/codecs/mime"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
+	"github.com/livekit/protocol/observability"
 	"github.com/livekit/protocol/observability/roomobs"
 	"github.com/livekit/protocol/rpc"
 	"github.com/livekit/protocol/utils"
@@ -459,34 +463,44 @@ func (r *RoomManager) StartSession(
 		subscriberAllowPause = *pi.SubscriberAllowPause
 	}
 
+	enabledCodecs := protoRoom.EnabledCodecs
+	if !slices.ContainsFunc(enabledCodecs, func(codec *livekit.Codec) bool {
+		return mime.IsMimeTypeStringRTX(codec.Mime)
+	}) {
+		enabledCodecs = append(enabledCodecs, &livekit.Codec{Mime: mime.MimeTypeRTX.String()})
+	}
+
 	participant, err = rtc.NewParticipant(rtc.ParticipantParams{
-		Identity:                pi.Identity,
-		Name:                    pi.Name,
-		SID:                     sid,
-		Config:                  &rtcConf,
-		Sink:                    responseSink,
-		AudioConfig:             r.config.Audio,
-		VideoConfig:             r.config.Video,
-		LimitConfig:             r.config.Limit,
-		ProtocolVersion:         pv,
-		SessionStartTime:        sessionStartTime,
-		TelemetryListener:       room.ParticipantTelemetryListener(),
-		Trailer:                 room.Trailer(),
-		PLIThrottleConfig:       r.config.RTC.PLIThrottle,
-		CongestionControlConfig: r.config.RTC.CongestionControl,
-		PublishEnabledCodecs:    protoRoom.EnabledCodecs,
-		SubscribeEnabledCodecs:  protoRoom.EnabledCodecs,
-		Grants:                  pi.Grants,
-		Reconnect:               pi.Reconnect,
-		Logger:                  pLogger,
-		Reporter:                roomobs.NewNoopParticipantSessionReporter(),
-		ClientConf:              clientConf,
-		ClientInfo:              rtc.ClientInfo{ClientInfo: pi.Client},
-		Region:                  pi.Region,
-		AdaptiveStream:          pi.AdaptiveStream,
-		AllowTCPFallback:        allowFallback,
-		TURNSEnabled:            r.config.IsTURNSEnabled(),
-		ParticipantListener:     room.LocalParticipantListener(),
+		Identity:                 pi.Identity,
+		Name:                     pi.Name,
+		SID:                      sid,
+		Config:                   &rtcConf,
+		Sink:                     responseSink,
+		AudioConfig:              r.config.Audio,
+		VideoConfig:              r.config.Video,
+		LimitConfig:              r.config.Limit,
+		ProtocolVersion:          pv,
+		SessionStartTime:         sessionStartTime,
+		SessionTimer:             observability.NewSessionTimer(sessionStartTime),
+		TelemetryListener:        room.ParticipantTelemetryListener(),
+		Trailer:                  room.Trailer(),
+		PLIThrottleConfig:        r.config.RTC.PLIThrottle,
+		CongestionControlConfig:  r.config.RTC.CongestionControl,
+		PublishEnabledCodecs:     enabledCodecs,
+		SubscribeEnabledCodecs:   enabledCodecs,
+		Grants:                   pi.Grants,
+		Reconnect:                pi.Reconnect,
+		Logger:                   pLogger,
+		Reporter:                 roomobs.NewNoopParticipantSessionReporter(),
+		ClientConf:               clientConf,
+		ClientInfo:               rtc.ClientInfo{ClientInfo: pi.Client},
+		Region:                   pi.Region,
+		AdaptiveStream:           pi.AdaptiveStream,
+		AllowTCPFallback:         allowFallback,
+		TCPFallbackRTTThreshold:  r.config.RTC.TCPFallbackRTTThreshold,
+		AllowUDPUnstableFallback: r.config.RTC.AllowUDPUnstableFallback,
+		TURNSEnabled:             r.config.IsTURNSEnabled(),
+		ParticipantListener:      room.LocalParticipantListener(),
 		ParticipantHelper: &roomManagerParticipantHelper{
 			room:                     room,
 			codecRegressionThreshold: r.config.Video.CodecRegressionThreshold,
@@ -1025,15 +1039,15 @@ func (r *RoomManager) iceServersForParticipant(apiKey string, participant types.
 			// UDP TURN is used as STUN
 			hasSTUN = true
 			for _, ip := range r.config.RTC.NodeIP.ToStringSlice() {
-				urls = append(urls, fmt.Sprintf("turn:%s:%d?transport=udp", ip, r.config.TURN.UDPPort))
+				urls = append(urls, fmt.Sprintf("turn:%s?transport=udp", net.JoinHostPort(ip, strconv.Itoa(int(r.config.TURN.UDPPort)))))
 			}
 		}
 		if r.config.TURN.TLSPort > 0 {
 			urls = append(urls, fmt.Sprintf("turns:%s:443?transport=tcp", r.config.TURN.Domain))
 		}
 		if len(urls) > 0 {
-			username := r.turnAuthHandler.CreateUsername(apiKey, participant.ID())
-			password, err := r.turnAuthHandler.CreatePassword(apiKey, participant.ID())
+			username, expiry := r.turnAuthHandler.CreateUsername(apiKey, participant.ID(), r.config.TURN.TTLSeconds)
+			password, err := r.turnAuthHandler.CreatePassword(apiKey, participant.ID(), expiry)
 			if err != nil {
 				participant.GetLogger().Warnw("could not create turn password", err)
 				hasSTUN = false
