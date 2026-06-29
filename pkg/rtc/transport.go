@@ -232,6 +232,8 @@ type PCTransport struct {
 	resetShortConnOnICERestart atomic.Bool
 	signalingRTT               atomic.Uint32 // milliseconds
 
+	hasFullyEstablishedRecorded bool
+
 	debouncedNegotiate *sfuutils.Debouncer
 	debouncePending    bool
 	lastNegotiate      time.Time
@@ -717,6 +719,8 @@ func (t *PCTransport) setICEConnectedAt(at time.Time) {
 			t.tcpICETimer.Stop()
 			t.tcpICETimer = nil
 		}
+
+		prometheus.RecordPeerConnectionState(t.params.Transport, "ice_connected")
 	}
 
 	if t.mayFailedICEStatsTimer != nil {
@@ -801,6 +805,7 @@ func (t *PCTransport) setConnectedAt(at time.Time) bool {
 
 	t.firstConnectedAt = at
 	prometheus.RecordServiceOperationSuccess("peer_connection")
+	prometheus.RecordPeerConnectionState(t.params.Transport, "connected")
 	t.lock.Unlock()
 	return true
 }
@@ -964,6 +969,13 @@ func (t *PCTransport) onDataChannel(dc *webrtc.DataChannel) {
 func (t *PCTransport) maybeNotifyFullyEstablished() {
 	if t.isFullyEstablished() {
 		t.params.Handler.OnFullyEstablished()
+
+		t.lock.Lock()
+		if !t.hasFullyEstablishedRecorded {
+			t.hasFullyEstablishedRecorded = true
+			prometheus.RecordPeerConnectionState(t.params.Transport, "fully_established")
+		}
+		t.lock.Unlock()
 	}
 }
 
@@ -995,12 +1007,12 @@ func (t *PCTransport) queueOrConfigureSender(
 	enableAudioNACK bool,
 ) {
 	params := configureSenderParams{
-		transceiver,
-		enabledCodecs,
-		rtcpFeedbackConfig,
-		!t.params.IsOfferer,
-		enableAudioStereo,
-		enableAudioNACK,
+		transceiver:              transceiver,
+		enabledCodecs:            enabledCodecs,
+		rtcpFeedbackConfig:       rtcpFeedbackConfig,
+		filterOutH264HighProfile: !t.params.IsOfferer,
+		enableAudioStereo:        enableAudioStereo,
+		enableAudioNACK:          enableAudioNACK,
 	}
 	if !t.params.IsOfferer {
 		t.sendersPendingConfigMu.Lock()
@@ -1009,10 +1021,17 @@ func (t *PCTransport) queueOrConfigureSender(
 		return
 	}
 
-	configureSender(params)
+	// Offerer: no remote offer to echo payload types from.
+	configureSender(params, nil)
 }
 
-func (t *PCTransport) processSendersPendingConfig() {
+// processSendersPendingConfig configures the senders queued while answering the
+// remote's offer (single peer connection mode). offerAudioPT (mime type -> the
+// payload type the offer assigned) is parsed from the offer by the caller before
+// SetRemoteDescription, so the answer echoes the offered payload types for audio
+// codecs (and stays consistent with the forwarded RTP). It is nil when there is
+// nothing to echo.
+func (t *PCTransport) processSendersPendingConfig(offerAudioPT map[mime.MimeType]webrtc.PayloadType) {
 	t.sendersPendingConfigMu.Lock()
 	pending := t.sendersPendingConfig
 	t.sendersPendingConfig = nil
@@ -1025,7 +1044,7 @@ func (t *PCTransport) processSendersPendingConfig() {
 			continue
 		}
 
-		configureSender(p)
+		configureSender(p, offerAudioPT)
 	}
 
 	if len(unprocessed) != 0 {
@@ -1418,6 +1437,13 @@ func (t *PCTransport) HasEverConnected() bool {
 	defer t.lock.RUnlock()
 
 	return !t.firstConnectedAt.IsZero()
+}
+
+func (t *PCTransport) FirstConnectedAt() time.Time {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	return t.firstConnectedAt
 }
 
 func (t *PCTransport) GetICEConnectionInfo() *types.ICEConnectionInfo {
@@ -2328,11 +2354,19 @@ func (t *PCTransport) handleICEGatheringCompleteAnswerer() error {
 	t.pendingRestartIceOffer = nil
 
 	t.params.Logger.Debugw("accept remote restart ice offer after ICE gathering")
+
+	// Parse the offer payload types before SetRemoteDescription so this does not
+	// race with pion's use of the same description.
+	var offerAudioPT map[mime.MimeType]webrtc.PayloadType
+	if parsed, err := offer.Unmarshal(); err == nil {
+		offerAudioPT = offerAudioPayloadTypes(parsed)
+	}
+
 	if err := t.setRemoteDescription(offer); err != nil {
 		return err
 	}
 	t.params.Handler.OnSetRemoteDescriptionOffer()
-	t.processSendersPendingConfig()
+	t.processSendersPendingConfig(offerAudioPT)
 
 	return t.createAndSendAnswer()
 }
@@ -2604,6 +2638,8 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 		t.params.Logger.Debugw("local offer (unfiltered)", "sdp", offer.SDP)
 	}
 
+	isStartOfConnectionSequence := t.pc.LocalDescription() == nil
+
 	err = t.pc.SetLocalDescription(offer)
 	if err != nil {
 		if errors.Is(err, webrtc.ErrConnectionClosed) {
@@ -2613,6 +2649,10 @@ func (t *PCTransport) createAndSendOffer(options *webrtc.OfferOptions) error {
 
 		prometheus.RecordServiceOperationError("offer", "local_description")
 		return errors.Wrap(err, "setting local description failed")
+	}
+
+	if isStartOfConnectionSequence {
+		prometheus.RecordPeerConnectionState(t.params.Transport, "started")
 	}
 
 	//
@@ -2788,7 +2828,7 @@ func (t *PCTransport) createAndSendAnswer() error {
 		return errors.Wrap(err, "could not send answer")
 	}
 	t.localAnswerId.Store(answerId)
-	prometheus.RecordServiceOperationSuccess("asnwer")
+	prometheus.RecordServiceOperationSuccess("answer")
 
 	if err := t.sendUnmatchedMediaRequirement(false); err != nil {
 		return err
@@ -2860,11 +2900,18 @@ func (t *PCTransport) handleRemoteOfferReceived(sd *webrtc.SessionDescription, o
 		t.outputAndClearICEStats()
 	}
 
+	isStartOfConnectionSequence := t.pc.RemoteDescription() == nil
+
 	if err := t.setRemoteDescription(*sd); err != nil {
 		return err
 	}
+
+	if isStartOfConnectionSequence {
+		prometheus.RecordPeerConnectionState(t.params.Transport, "started")
+	}
+
 	t.params.Handler.OnSetRemoteDescriptionOffer()
-	t.processSendersPendingConfig()
+	t.processSendersPendingConfig(offerAudioPayloadTypes(parsed))
 
 	rtxRepairs := nonSimulcastRTXRepairsFromSDP(parsed, t.params.Logger)
 	if len(rtxRepairs) > 0 {
@@ -3049,7 +3096,7 @@ type configureSenderParams struct {
 	enableAudioNACK          bool
 }
 
-func configureSender(params configureSenderParams) {
+func configureSender(params configureSenderParams, offerAudioPT map[mime.MimeType]webrtc.PayloadType) {
 	configureSenderCodecs(
 		params.transceiver,
 		params.enabledCodecs,
@@ -3058,14 +3105,14 @@ func configureSender(params configureSenderParams) {
 	)
 
 	if params.transceiver.Kind() == webrtc.RTPCodecTypeAudio {
-		configureSenderAudio(params.transceiver, params.enableAudioStereo, params.enableAudioNACK)
+		configureSenderAudio(params.transceiver, params.enableAudioStereo, params.enableAudioNACK, offerAudioPT)
 	}
 }
 
 // configure subscriber transceiver for audio stereo and nack
 // pion doesn't support per transciver codec configuration, so the nack of this session will be disabled
 // forever once it is first disabled by a transceiver.
-func configureSenderAudio(tr *webrtc.RTPTransceiver, stereo bool, nack bool) {
+func configureSenderAudio(tr *webrtc.RTPTransceiver, stereo bool, nack bool, offerAudioPT map[mime.MimeType]webrtc.PayloadType) {
 	sender := tr.Sender()
 	if sender == nil {
 		return
@@ -3089,10 +3136,63 @@ func configureSenderAudio(tr *webrtc.RTPTransceiver, stereo bool, nack bool) {
 				}
 			}
 		}
+		// When answering a subscriber's offer (single peer connection mode), echo
+		// the payload type the offer assigned for this codec instead of the server's
+		// MediaEngine payload type. Otherwise the answer can advertise e.g. Opus on a
+		// PT that was never offered, which Firefox rejects (received packets decode to
+		// 0 samples / silence). The forwarded RTP already uses the offered PT.
+		if len(offerAudioPT) > 0 {
+			if pt, ok := offerAudioPT[mime.NormalizeMimeType(c.MimeType)]; ok {
+				c.PayloadType = pt
+			}
+		}
 		configCodecs = append(configCodecs, c)
 	}
 
 	tr.SetCodecPreferences(configCodecs)
+}
+
+// offerAudioPayloadTypes returns mime type -> payload type for the audio codecs
+// in a remote offer, so the subscriber answer can echo the offered payload types
+// (RFC 3264 6.1). The caller parses the offer before SetRemoteDescription, so this
+// does not race with pion's use of the same description.
+func offerAudioPayloadTypes(parsed *sdp.SessionDescription) map[mime.MimeType]webrtc.PayloadType {
+	if parsed == nil {
+		return nil
+	}
+	out := map[mime.MimeType]webrtc.PayloadType{}
+	for _, md := range parsed.MediaDescriptions {
+		if !strings.EqualFold(md.MediaName.Media, "audio") {
+			continue
+		}
+		for _, a := range md.Attributes {
+			if a.Key != "rtpmap" {
+				continue
+			}
+			// value e.g. "109 opus/48000/2"
+			fields := strings.Fields(a.Value)
+			if len(fields) < 2 {
+				continue
+			}
+			pt, err := strconv.Atoi(fields[0])
+			if err != nil {
+				continue
+			}
+			codecName := fields[1]
+			if i := strings.Index(codecName, "/"); i >= 0 {
+				codecName = codecName[:i]
+			}
+			mt := mime.NormalizeMimeTypeCodec(codecName).ToMimeType()
+			if mt == mime.MimeTypeUnknown {
+				continue
+			}
+			out[mt] = webrtc.PayloadType(pt)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // In single peer connection mode, set up enebled codecs for sender.

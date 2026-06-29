@@ -29,10 +29,6 @@ import (
 	"os"
 )
 
-import (
-	_ "net/http/pprof"
-)
-
 // Injectors from wire.go:
 
 func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*LivekitServer, error) {
@@ -106,7 +102,7 @@ func InitializeServer(conf *config.Config, currentNode routing.LocalNode) (*Live
 	if err != nil {
 		return nil, err
 	}
-	agentDispatchService := NewAgentDispatchService(agentDispatchInternalClient, topicFormatter, roomAllocator, router)
+	agentDispatchService := NewAgentDispatchService(limitConfig, agentDispatchInternalClient, topicFormatter, roomAllocator, router)
 	egressService := NewEgressService(egressClient, rtcEgressLauncher, ioInfoService, roomService)
 	ingressConfig := getIngressConfig(conf)
 	ingressClient, err := rpc.NewIngressClient(clientParams)

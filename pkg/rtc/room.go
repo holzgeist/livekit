@@ -705,6 +705,9 @@ func (r *Room) onUpdateSubscriptionPermission(participant types.LocalParticipant
 	for _, track := range participant.GetPublishedTracks() {
 		r.trackManager.NotifyTrackChanged(track.ID())
 	}
+	for _, track := range participant.GetPublishedDataTracks() {
+		r.trackManager.NotifyTrackChanged(track.ID())
+	}
 	return nil
 }
 
@@ -746,6 +749,13 @@ func (r *Room) ResolveDataTrackForSubscriber(sub types.LocalParticipant, trackID
 	res.TrackRemovedNotifier = r.trackManager.GetOrCreateTrackRemoveNotifier(trackID)
 	res.PublisherIdentity = info.PublisherIdentity
 	res.PublisherID = info.PublisherID
+
+	pub := r.GetParticipantByID(info.PublisherID)
+	// when publisher is not found, we will assume it doesn't have permission to access
+	if pub != nil {
+		res.HasPermission = IsParticipantExemptFromTrackPermissionsRestrictions(sub) || pub.HasPermission(trackID, sub.Identity())
+	}
+
 	return res
 }
 
@@ -1379,6 +1389,11 @@ func (r *Room) onUpdateDataSubscriptions(participant types.LocalParticipant, req
 	}
 }
 
+func (r *Room) onGetDataBlob(participant types.LocalParticipant, req *livekit.GetDataBlobRequest) {
+	publisher := r.GetParticipant(livekit.ParticipantIdentity(req.ParticipantIdentity))
+	participant.ProcessGetDataBlobRequest(req, publisher)
+}
+
 func (r *Room) onLeave(p types.LocalParticipant, reason types.ParticipantCloseReason) {
 	r.RemoveParticipant(p.Identity(), p.ID(), reason)
 }
@@ -1774,6 +1789,7 @@ func (r *Room) launchRoomAgents(ads []*agentDispatch) {
 				AgentName:  ad.AgentName,
 				DispatchId: ad.Id,
 				Deployment: ad.Deployment,
+				Attributes: ad.Attributes,
 			})
 			r.handleNewJobs(ad.AgentDispatch, inc)
 			done()
@@ -1798,6 +1814,7 @@ func (r *Room) launchTargetAgents(ads []*agentDispatch, p types.Participant, job
 				AgentName:   ad.AgentName,
 				DispatchId:  ad.Id,
 				Deployment:  ad.Deployment,
+				Attributes:  ad.Attributes,
 			})
 			r.handleNewJobs(ad.AgentDispatch, inc)
 			done()
@@ -1864,6 +1881,7 @@ func (r *Room) createAgentDispatchFromRoomDispatch(rad *livekit.RoomAgentDispatc
 		Room:          r.protoRoom.Name,
 		RestartPolicy: rad.GetRestartPolicy(),
 		Deployment:    rad.GetDeployment(),
+		Attributes:    rad.GetAttributes(),
 	})
 }
 
@@ -1986,6 +2004,13 @@ func (l *localParticipantListener) OnUpdateSubscriptionPermission(p types.LocalP
 
 func (l *localParticipantListener) OnUpdateDataSubscriptions(p types.LocalParticipant, req *livekit.UpdateDataSubscription) {
 	l.room.onUpdateDataSubscriptions(p, req)
+}
+
+func (l *localParticipantListener) OnStoreDataBlob(_p types.LocalParticipant, _dataBlob *livekit.DataBlob) {
+}
+
+func (l *localParticipantListener) OnGetDataBlob(p types.LocalParticipant, req *livekit.GetDataBlobRequest) {
+	l.room.onGetDataBlob(p, req)
 }
 
 func (l *localParticipantListener) OnSyncState(p types.LocalParticipant, state *livekit.SyncState) error {
