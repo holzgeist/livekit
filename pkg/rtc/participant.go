@@ -219,6 +219,7 @@ type ParticipantParams struct {
 	SubscriberAllowPause              bool
 	SubscriptionLimitAudio            int32
 	SubscriptionLimitVideo            int32
+	SubscribePacer                    *SubscribePacer
 	PlayoutDelay                      *livekit.PlayoutDelay
 	SyncStreams                       bool
 	ForwardStats                      *sfu.ForwardStats
@@ -900,6 +901,9 @@ func (p *ParticipantImpl) SetPermission(permission *livekit.ParticipantPermissio
 		// revoke all subscriptions
 		for _, st := range p.SubscriptionManager.GetSubscribedTracks() {
 			st.MediaTrack().RemoveSubscriber(p.ID(), false)
+		}
+		for _, ddt := range p.SubscriptionManager.GetSubscribedDataTracks() {
+			ddt.PublishDataTrack().RemoveSubscriber(p.ID())
 		}
 	}
 
@@ -2239,6 +2243,7 @@ func (p *ParticipantImpl) setupSubscriptionManager() {
 		OnSubscriptionError:      p.onSubscriptionError,
 		SubscriptionLimitVideo:   p.params.SubscriptionLimitVideo,
 		SubscriptionLimitAudio:   p.params.SubscriptionLimitAudio,
+		SubscribePacer:           p.params.SubscribePacer,
 		UseOneShotSignallingMode: p.params.UseOneShotSignallingMode,
 	})
 	p.SubscriptionManager.OnSubscribeStatusChanged(func(publisherID livekit.ParticipantID, subscribed bool) {
@@ -2641,6 +2646,9 @@ func (p *ParticipantImpl) handleReceivedDataMessage(kind livekit.DataPacket_Kind
 				Message: res.Error.GetMessage(),
 				Data:    res.Error.GetData(),
 			})
+		default:
+			// Unknown response encoding: still forwarded downstream, logged as a canary.
+			p.pubLogger.Warnw("unhandled RPC response value type", nil, "rpc_request_id", rpcResponse.GetRequestId())
 		}
 	case *livekit.DataPacket_RpcAck:
 		if payload.RpcAck == nil {

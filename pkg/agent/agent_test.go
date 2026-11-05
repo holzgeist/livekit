@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -41,8 +42,11 @@ func TestAgent(t *testing.T) {
 			Room:       &livekit.Room{},
 			AgentName:  testAgentName,
 		}
-		_, err := client.JobRequest(context.Background(), testAgentName, agent.RoomAgentTopic, job)
-		require.NoError(t, err)
+		// registration is async and the job topic is subscribed after the register response, so retry until a worker is there
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, err := client.JobRequest(context.Background(), testAgentName, agent.RoomAgentTopic, job)
+			assert.NoError(c, err)
+		}, 5*time.Second, 50*time.Millisecond)
 
 		select {
 		case a := <-jobAssignments.Events():
@@ -55,6 +59,41 @@ func TestAgent(t *testing.T) {
 		case <-time.After(time.Second):
 			require.Fail(t, "job assignment timeout")
 		}
+	})
+
+	t.Run("dispatch burst does not wait for the CheckEnabled timeout", func(t *testing.T) {
+		bus := psrpc.NewLocalMessageBus()
+		server := testutils.NewTestServer(bus)
+		t.Cleanup(server.Close)
+
+		rpcClient := must.Get(rpc.NewAgentInternalClient(bus))
+		registered := must.Get(rpcClient.SubscribeWorkerRegistered(context.Background(), agent.DefaultHandlerNamespace))
+		defer registered.Close()
+
+		worker := server.SimulateAgentWorker(testutils.WithJobLoad(testutils.NewStableJobLoad(0)))
+		worker.Register(testAgentName, livekit.JobType_JT_ROOM)
+		select {
+		case <-registered.Channel():
+		case <-time.After(time.Second):
+			require.Fail(t, "registration timeout")
+		}
+
+		client := must.Get(agent.NewAgentClient(bus, agent.Config{}))
+		t.Cleanup(func() { _ = client.Stop() })
+
+		const jobCount = 60 // more than the client's 50 pool workers
+		start := time.Now()
+		for range jobCount {
+			go client.LaunchJob(context.Background(), &agent.JobRequest{
+				JobType:   livekit.JobType_JT_ROOM,
+				Room:      &livekit.Room{},
+				AgentName: testAgentName,
+			})
+		}
+		require.Eventually(t, func() bool {
+			return len(worker.Jobs()) == jobCount
+		}, 2*agent.CheckEnabledTimeout, 10*time.Millisecond)
+		require.Less(t, time.Since(start), 2*time.Second)
 	})
 }
 

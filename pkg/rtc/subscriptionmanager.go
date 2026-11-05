@@ -60,6 +60,8 @@ type SubscriptionManagerParams struct {
 
 	SubscriptionLimitVideo, SubscriptionLimitAudio int32
 
+	SubscribePacer *SubscribePacer
+
 	DataTrackResolver types.DataTrackResolver
 
 	UseOneShotSignallingMode bool
@@ -878,6 +880,11 @@ func (m *SubscriptionManager) subscribeSynchronous(trackID livekit.TrackID) erro
 
 func (m *SubscriptionManager) addSubscriber(sub *mediaTrackSubscription, track types.MediaTrack, isSync bool) error {
 	trackID := track.ID()
+	// take the shadow token before setup, so tokens go out in arrival order
+	var paceShadowDelays map[string]time.Duration
+	if track.Kind() == livekit.TrackType_VIDEO && !isSync {
+		paceShadowDelays = m.params.SubscribePacer.Delays(time.Now())
+	}
 	subTrack, err := track.AddSubscriber(m.params.Participant)
 	if err != nil && !errors.Is(err, errAlreadySubscribed) {
 		// ignore error(s): already subscribed
@@ -895,6 +902,9 @@ func (m *SubscriptionManager) addSubscriber(sub *mediaTrackSubscription, track t
 		)
 	}
 	if err == nil && subTrack != nil { // subTrack could be nil if already subscribed
+		if paceShadowDelays != nil {
+			prometheus.RecordSubscribePaceShadow(paceShadowDelays)
+		}
 		subTrack.OnSubscribeStreamStarted(sub.recordStreamStartLatency)
 		subTrack.OnClose(func(isExpectedToResume bool) {
 			m.handleSubscribedTrackClose(sub, isExpectedToResume)
@@ -923,6 +933,13 @@ func (m *SubscriptionManager) addSubscriber(sub *mediaTrackSubscription, track t
 			m.subscribedVideoCount.Inc()
 		case livekit.TrackType_AUDIO:
 			m.subscribedAudioCount.Inc()
+		}
+
+		// a canSubscribe revoke only removes recorded subscriptions, so one that landed while
+		// this subscribe was in flight missed it; now that it is recorded, check again
+		if !m.params.Participant.CanSubscribe() {
+			track.RemoveSubscriber(m.params.Participant.ID(), false)
+			return ErrNoSubscribePermission
 		}
 
 		if !isSync && subTrack.NeedsNegotiation() {
@@ -1150,6 +1167,13 @@ func (m *SubscriptionManager) subscribeDataTrack(sub *dataTrackSubscription) err
 			m.handleDataDownTrackClose(sub)
 		})
 		sub.setDataDownTrack(dataDownTrack)
+
+		// a canSubscribe revoke only removes recorded subscriptions, so one that landed while
+		// this subscribe was in flight missed it; now that it is recorded, check again
+		if !m.params.Participant.CanSubscribe() {
+			dataTrack.RemoveSubscriber(m.params.Participant.ID())
+			return ErrNoSubscribePermission
+		}
 		sub.logger.Debugw("subscribed to data track")
 	}
 

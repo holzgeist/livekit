@@ -50,6 +50,8 @@ func (d *DownTrack) HandleRTCPForTest(pkt []byte) { d.handleRTCP(pkt) }
 
 func (d *DownTrack) SetRTPHeaderExtensionsForTest() { d.setRTPHeaderExtensions() }
 
+func (d *DownTrack) SetAbsCaptureTimeExtIDForTest(id int) { d.absCaptureTimeExtID = id }
+
 // ForceForwardLayerForTest forces the forwarder onto a valid current/target layer so a
 // (non-simulcast) video packet will be forwarded without driving full allocation.
 func (d *DownTrack) ForceForwardLayerForTest(layer buffer.VideoLayer) {
@@ -80,6 +82,19 @@ func (d *DownTrack) RetransmitForTest(
 		extTimestamp:      extTimestamp,
 	}
 	return d.retransmitPacket(&epm, sourcePkt, false)
+}
+
+// NACKIgnoreWindowForTest is the longest time the sequencer ignores a repeat NACK for a packet.
+const NACKIgnoreWindowForTest = ignoreRetransmission * time.Millisecond
+
+// RTXCappedForTest returns the NACKed packets the budget has refused.
+func (d *DownTrack) RTXCappedForTest() uint64 {
+	return d.rtxBudget.numCapped.Load()
+}
+
+// SetRTXBudgetForTest replaces the down track's retransmission budget.
+func (d *DownTrack) SetRTXBudgetForTest(config RTXBudgetLimit) {
+	d.rtxBudget = newRTXBudget(config)
 }
 
 const KeyFrameIntervalMaxForTest = keyFrameIntervalMax * time.Millisecond

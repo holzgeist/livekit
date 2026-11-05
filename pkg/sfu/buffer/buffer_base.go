@@ -36,6 +36,7 @@ import (
 	dd "github.com/livekit/livekit-server/pkg/sfu/rtpextension/dependencydescriptor"
 	"github.com/livekit/livekit-server/pkg/sfu/rtpstats"
 	"github.com/livekit/livekit-server/pkg/sfu/utils"
+	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
 	"github.com/livekit/mediatransportutil/pkg/bucket"
 	"github.com/livekit/mediatransportutil/pkg/codec"
 	"github.com/livekit/mediatransportutil/pkg/nack"
@@ -93,9 +94,10 @@ type ExtPacket struct {
 	pkt        rtp.Packet
 	extensions [8]rtp.Extension
 
-	// backing storage for VP8 and VP9, so parsing does not allocate
-	vp8 codec.VP8
-	vp9 codecs.VP9Packet
+	// backing storage for VP8, VP9 and abs-capture-time, so parsing does not allocate
+	vp8            codec.VP8
+	vp9            codecs.VP9Packet
+	absCaptureTime act.AbsCaptureTime
 }
 
 type BufferProvider interface {
@@ -152,14 +154,15 @@ const (
 )
 
 type BufferBaseParams struct {
-	SSRC                uint32
-	MaxVideoPkts        int
-	MaxAudioPkts        int
-	LoggerComponents    []string
-	SendPLI             func()
-	IsReportingEnabled  bool
-	IsOOBSequenceNumber bool
-	IsDDRestartEnabled  bool
+	SSRC                  uint32
+	MaxVideoPkts          int
+	MaxAudioPkts          int
+	LoggerComponents      []string
+	SendPLI               func()
+	OnStreamRestartLocked func()
+	IsReportingEnabled    bool
+	IsOOBSequenceNumber   bool
+	IsDDRestartEnabled    bool
 }
 
 type BufferBase struct {
@@ -186,6 +189,7 @@ type BufferBase struct {
 	rtpParameters  webrtc.RTPParameters
 	payloadType    uint8
 	rtxPayloadType uint8
+	fecPayloadType uint8
 
 	snRangeMap *utils.RangeMap[uint64, uint64]
 
@@ -327,6 +331,14 @@ func (b *BufferBase) BindLocked(rtpParameters webrtc.RTPParameters, codec webrtc
 	for _, codec := range rtpParameters.Codecs {
 		if mime.IsMimeTypeStringRTX(codec.MimeType) && strings.Contains(codec.SDPFmtpLine, fmt.Sprintf("apt=%d", b.payloadType)) {
 			b.rtxPayloadType = uint8(codec.PayloadType)
+			break
+		}
+	}
+
+	// find FlexFEC payload type, the repair stream is codec agnostic (no apt)
+	for _, codec := range rtpParameters.Codecs {
+		if strings.EqualFold(codec.MimeType, webrtc.MimeTypeFlexFEC03) {
+			b.fecPayloadType = uint8(codec.PayloadType)
 			break
 		}
 	}
@@ -589,6 +601,10 @@ func (b *BufferBase) restartStreamLocked(reason string, isDetected bool) {
 	}
 
 	b.StartKeyFrameSeeder()
+
+	if f := b.params.OnStreamRestartLocked; f != nil {
+		f()
+	}
 
 	if isDetected {
 		b.isRestartPending = true
@@ -1072,9 +1088,8 @@ func (b *BufferBase) getExtPacket(
 
 	if b.absCaptureTimeExtID != 0 {
 		if extData := rtpPacket.GetExtension(b.absCaptureTimeExtID); len(extData) != 0 {
-			actExt := &act.AbsCaptureTime{}
-			if err := actExt.Unmarshal(extData); err == nil {
-				ep.AbsCaptureTimeExt = actExt
+			if err := ep.absCaptureTime.Unmarshal(extData); err == nil {
+				ep.AbsCaptureTimeExt = &ep.absCaptureTime
 			}
 		}
 	}
@@ -1197,6 +1212,7 @@ func (b *BufferBase) processVideoPacket(ep *ExtPacket) error {
 		if b.rtpStats != nil {
 			b.rtpStats.UpdateKeyFrame(1)
 		}
+		prometheus.IncrementKeyFrames(prometheus.Incoming)
 	}
 
 	if len(videoSize) > 0 {
@@ -1359,8 +1375,9 @@ func (b *BufferBase) GetSenderReportData() *livekit.RTCPSenderReportState {
 }
 
 func (b *BufferBase) GetPacket(buff []byte, esn uint64) (int, error) {
-	b.Lock()
-	defer b.Unlock()
+	// read only, so retransmissions for many subscribers do not serialize
+	b.RLock()
+	defer b.RUnlock()
 
 	return b.getPacketLocked(buff, esn)
 }

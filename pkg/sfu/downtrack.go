@@ -15,12 +15,14 @@
 package sfu
 
 import (
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +51,7 @@ import (
 	pd "github.com/livekit/livekit-server/pkg/sfu/rtpextension/playoutdelay"
 	"github.com/livekit/livekit-server/pkg/sfu/rtpstats"
 	"github.com/livekit/livekit-server/pkg/sfu/utils"
+	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
 )
 
 // -------------------------------------------------------------------
@@ -246,6 +249,7 @@ type DownTrackParams struct {
 	SupportsCodecChange            bool
 	StripPacketTrailer             bool
 	EnableStartAtDesiredQuality    bool
+	RTXBudget                      RTXBudgetConfig
 	Listener                       DownTrackListener
 }
 
@@ -267,6 +271,7 @@ type DownTrack struct {
 	payloadTypeRTX    atomic.Uint32
 	sequencer         *sequencer
 	rtxSequenceNumber atomic.Uint64
+	rtxBudget         *rtxBudget
 
 	receiverLock sync.RWMutex
 	receiver     TrackReceiver
@@ -379,6 +384,7 @@ func NewDownTrack(params DownTrackParams) (*DownTrack, error) {
 		retransmitCh:        make(chan struct{}, 1),
 		createdAt:           time.Now().UnixNano(),
 		receiver:            params.Receiver,
+		rtxBudget:           newRTXBudget(params.RTXBudget.forKind(kind)),
 	}
 	d.lastUnmutedAt.Store(time.Now())
 
@@ -1113,13 +1119,13 @@ func (d *DownTrack) WriteRTP(extPkt *buffer.ExtPacket, layer int32) int32 {
 
 	// add extensions
 	//
-	// the header refers to the descriptor until the pacer marshals it, so hold it in the pacer packet, which one send owns
-	ddBytes := tp.ddBytesSpill
+	// the header refers to extensions until the pacer marshals them, so hold the ones on the stack in the pacer packet, which one send owns
+	ddBytes, ddExt := tp.ddBytesSpill, tp.ddBytesSpill
 	if inline := tp.ddInline(); ddBytes == nil && len(inline) != 0 {
-		ddBytes = pacerPacket.HoldExtension(inline)
+		ddBytes, ddExt = inline, pacerPacket.HoldExtension(inline)
 	}
-	if d.dependencyDescriptorExtID != 0 && len(ddBytes) != 0 {
-		hdr.SetExtension(uint8(d.dependencyDescriptorExtID), ddBytes)
+	if d.dependencyDescriptorExtID != 0 && len(ddExt) != 0 {
+		hdr.SetExtension(uint8(d.dependencyDescriptorExtID), ddExt)
 	}
 	if d.playoutDelayExtID != 0 && d.playoutDelay != nil {
 		if val := d.playoutDelay.GetDelayExtension(hdr.SequenceNumber); val != nil {
@@ -1136,13 +1142,12 @@ func (d *DownTrack) WriteRTP(extPkt *buffer.ExtPacket, layer int32) int32 {
 	}
 	var actBytes []byte
 	if extPkt.AbsCaptureTimeExt != nil && d.absCaptureTimeExtID != 0 {
+		var actBuf [act.MaxSize]byte
+		n := 0
 		if !d.params.DisableSenderReportPassThrough {
 			// pass through the original publisher capture time verbatim, consistent
 			// with sender reports also being passed through unchanged.
-			actBytes, err = extPkt.AbsCaptureTimeExt.Marshal()
-			if err == nil {
-				hdr.SetExtension(uint8(d.absCaptureTimeExtID), actBytes)
-			}
+			n, _ = extPkt.AbsCaptureTimeExt.MarshalTo(actBuf[:])
 		} else {
 			// normalize capture time to SFU clock.
 			// NOTE: even if there is estimated offset populated, just re-map the
@@ -1156,26 +1161,29 @@ func (d *DownTrack) WriteRTP(extPkt *buffer.ExtPacket, layer int32) int32 {
 				if err = actExtCopy.Rewrite(
 					rtpstats.RTCPSenderReportPropagationDelay(refSenderReport),
 				); err == nil {
-					actBytes, err = actExtCopy.Marshal()
-					if err == nil {
-						hdr.SetExtension(uint8(d.absCaptureTimeExtID), actBytes)
-					}
+					n, _ = actExtCopy.MarshalTo(actBuf[:])
 				}
+			}
+		}
+		if n != 0 {
+			actBytes = actBuf[:n]
+			if actExt := pacerPacket.HoldExtension(actBytes); actExt != nil {
+				hdr.SetExtension(uint8(d.absCaptureTimeExtID), actExt)
 			}
 		}
 	}
 	d.addDummyExtensions(hdr)
 
-	// the sequencer copies the descriptor, which has to happen before Enqueue frees the scratch
+	// the sequencer copies from the translation params and the incoming packet, not from the pacer packet that Enqueue frees
 	if d.sequencer != nil {
 		d.sequencer.push(
 			extPkt.Arrival,
 			extPkt.ExtSequenceNumber,
 			tp.rtp.extSequenceNumber,
 			tp.rtp.extTimestamp,
-			hdr.Marker,
+			tp.marker,
 			int8(layer),
-			payload[:len(codecBytes)],
+			codecBytes,
 			tp.incomingHeaderSize,
 			ddBytes,
 			actBytes,
@@ -1185,6 +1193,7 @@ func (d *DownTrack) WriteRTP(extPkt *buffer.ExtPacket, layer int32) int32 {
 
 	headerSize := hdr.MarshalSize()
 	pacerPacket.HeaderSize = headerSize
+	d.rtxBudget.onMediaSent(headerSize + len(payload))
 	d.rtpStats.Update(
 		extPkt.Arrival,
 		tp.rtp.extSequenceNumber,
@@ -1200,6 +1209,7 @@ func (d *DownTrack) WriteRTP(extPkt *buffer.ExtPacket, layer int32) int32 {
 	if extPkt.IsKeyFrame {
 		d.isNACKThrottled.Store(false)
 		d.rtpStats.UpdateKeyFrame(1)
+		prometheus.IncrementKeyFrames(prometheus.Outgoing)
 		d.params.Logger.Debugw(
 			"forwarded key frame",
 			"layer", layer,
@@ -2318,8 +2328,8 @@ func (d *DownTrack) retransmitPacket(epm *extPacketMeta, sourcePkt []byte, isPro
 			hdr.SetExtension(uint8(d.dependencyDescriptorExtID), ddBytes)
 		}
 	}
-	if d.absCaptureTimeExtID != 0 && len(epm.actBytes) != 0 {
-		hdr.SetExtension(uint8(d.absCaptureTimeExtID), epm.actBytes)
+	if d.absCaptureTimeExtID != 0 && epm.actBytesSize != 0 {
+		hdr.SetExtension(uint8(d.absCaptureTimeExtID), epm.actBytes[:epm.actBytesSize])
 	}
 	d.addDummyExtensions(hdr)
 
@@ -2472,8 +2482,25 @@ func (d *DownTrack) retransmitPackets(nacks []uint16) {
 	nackAcks := uint32(0)
 	nackMisses := uint32(0)
 	numRepeatedNACKs := uint32(0)
-	for _, epm := range d.sequencer.getExtPacketMetas(filtered) {
+	var capped []extPacketMeta
+	epms := d.sequencer.getExtPacketMetas(filtered)
+	if d.rtxBudget != nil {
+		// newest first: when the budget runs short, the oldest packets are the least likely
+		// to still arrive in time for the receiver's jitter buffer. A batch can hold several
+		// NACK messages, so sort instead of relying on their order.
+		slices.SortFunc(epms, func(a, b extPacketMeta) int {
+			return cmp.Compare(b.extSequenceNumber, a.extSequenceNumber)
+		})
+	}
+	for i := range epms {
+		epm := &epms[i]
 		if disallowedLayers[epm.layer] {
+			continue
+		}
+
+		// over budget: skip without reading the publisher's buffer
+		if len(capped) != 0 || !d.rtxBudget.allow() {
+			capped = append(capped, *epm)
 			continue
 		}
 
@@ -2493,7 +2520,15 @@ func (d *DownTrack) retransmitPackets(nacks []uint16) {
 			numRepeatedNACKs++
 		}
 
-		d.retransmitPacket(&epm, pktBuff[:n], false)
+		if sent, err := d.retransmitPacket(epm, pktBuff[:n], false); err == nil {
+			d.rtxBudget.spend(sent)
+		}
+	}
+	if len(capped) != 0 {
+		// a capped packet was not sent, so it does not count toward the sequencer's NACK limit
+		d.sequencer.unmarkNacked(capped)
+		d.rtxBudget.numCapped.Add(uint64(len(capped)))
+		prometheus.RecordRTXCapped(d.kind.String(), uint32(len(capped)))
 	}
 
 	d.totalRepeatedNACKs.Add(numRepeatedNACKs)
@@ -2592,6 +2627,12 @@ func (d *DownTrack) WriteProbePackets(bytesToSend int, usePadding bool) int {
 			if bytesSent >= bytesToSend {
 				break
 			}
+		}
+
+		// recent packets may be gone from the publisher buffer, for example while
+		// paused, so probe with padding to keep the probe cluster progressing
+		if bytesSent == 0 {
+			return d.WriteProbePackets(bytesToSend, true)
 		}
 	}
 
