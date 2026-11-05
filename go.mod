@@ -173,4 +173,4 @@ replace github.com/pion/dtls/v3 => github.com/livekit/dtls/v3 v3.1.5-warp.3
 
 replace github.com/pion/ice/v4 => github.com/livekit/ice/v4 v4.4.0-warp.3
 
-replace github.com/livekit/protocol v1.52.2-0.20261012065025-9bb708cdb819 => github.com/holzgeist/livekit-protocol v0.0.0-20261022093744-f08ed9b0931a
+replace github.com/livekit/protocol v1.52.2-0.20261012065025-9bb708cdb819 => github.com/holzgeist/livekit-protocol v0.0.0-20261105114709-0be58064e5b5
